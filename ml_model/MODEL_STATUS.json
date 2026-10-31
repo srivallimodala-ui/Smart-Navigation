@@ -1,0 +1,7 @@
+{
+  "rows_total": 4,
+  "rows_with_valid_feedback": 0,
+  "rows_pending": 2,
+  "model_trained": false,
+  "reason": "Current dataset has too few labelled examples; all feedback values are blank."
+}

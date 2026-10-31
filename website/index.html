@@ -1,0 +1,1358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VNIT Smart Walk — Personalized Navigation</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--navy:#12243a;--teal:#0f766e;--bg:#f4f7fb;--card:#fff;--muted:#667085;--line:#dce3ec;--soft:#edf7f4}
+*{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#172033}
+header{background:linear-gradient(120deg,#12243a,#155e75);color:#fff;padding:16px clamp(14px,3vw,32px)}header h1{margin:0 0 3px;font-size:26px}header p{margin:0;color:#d7e8f3;font-size:13px}
+main{max-width:1320px;margin:auto;padding:12px;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:12px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px;box-shadow:0 4px 14px #1322380a}.controls{display:flex;flex-direction:column;gap:9px}
+h2{font-size:16px;margin:0}.section-title{display:flex;justify-content:space-between;align-items:center}.field{display:flex;flex-direction:column;gap:4px}.field label{font-size:12px;font-weight:650;color:#344054}
+input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px 9px;font:inherit;background:#fff;color:#172033}input[readonly]{background:#f5f7fa;color:#526070;font-size:12px}
+button{border:0;border-radius:9px;padding:9px 11px;font:inherit;font-weight:650;cursor:pointer;background:var(--teal);color:#fff}button.secondary{background:#e8eef5;color:#1d344b}button.warn{background:#a63b36}button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;flex-wrap:wrap;gap:7px}.actions button{flex:1}.hint{font-size:11px;color:var(--muted)}
+#map{height:min(72vh,690px);min-height:520px;border-radius:12px;border:1px solid var(--line);z-index:1}.map-panel{display:flex;flex-direction:column;gap:9px}.searchrow{display:flex;gap:7px} .searchrow input{flex:1;min-width:0}
+.autocomplete-wrap{position:relative}.autocomplete-list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:10000;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:260px;overflow:auto;display:none}.autocomplete-item{padding:10px 12px;cursor:pointer;border-bottom:1px solid #eef2f5;font-size:14px}.autocomplete-item:last-child{border-bottom:0}.autocomplete-item:hover,.autocomplete-item.active{background:#eef8f6}.autocomplete-name{font-weight:700;color:#17324d}.autocomplete-meta{font-size:11px;color:#718096;margin-top:2px}.autocomplete-empty{padding:10px 12px;color:#718096;font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.stat{background:#f1f6f8;padding:8px;border-radius:8px}.stat small{display:block;color:var(--muted);font-size:10px}.stat strong{font-size:17px}
+.status{padding:8px 10px;background:var(--soft);border-radius:9px;color:#145b50;font-size:12px}.next-turn{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;background:#f0f7ff;border:1px solid #d6e7f7;border-radius:10px;padding:9px}.next-turn .label{font-size:11px;color:var(--muted)}.next-turn strong{display:block;font-size:17px;color:#123d63}.next-turn .distance{font-size:19px;font-weight:750;color:#123d63;text-align:right}.feedback-wrap{display:block;border-top:1px solid var(--line);padding-top:9px}.feedback{display:flex;gap:6px}.feedback button{flex:1;min-width:0;padding:8px 5px;font-size:12px}.log{max-height:130px;overflow:auto;font-size:11px;border-top:1px solid var(--line);margin-top:2px;padding-top:6px}.compact-row{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+footer{max-width:1320px;margin:0 auto;padding:0 12px 16px;color:var(--muted);font-size:10px}
+@media(max-width:850px){main{grid-template-columns:1fr;padding:8px}.map-panel{order:1}.controls{order:2}#map{height:52vh;min-height:400px}}
+.turn-pin{width:30px;height:30px;border-radius:50%;background:#fff;border:3px solid #0f766e;color:#0f766e;font:700 17px/24px system-ui;text-align:center;box-shadow:0 1px 5px rgba(0,0,0,.4)}.turn-pin.next{background:#0f766e;color:#fff;border-color:#fff;transform:scale(1.25)}.turn-pin.done{opacity:.35}
+</style>
+</head>
+<body>
+<header><h1>VNIT Smart Walk</h1><p>Personalized turn-instruction timing based on walking behaviour and user feedback</p></header>
+<main>
+<section class="panel controls">
+  <div class="section-title"><h2>Plan your walk</h2><span class="hint">VNIT + nearby</span></div>
+  <div class="field"><label for="start">Starting point</label><div class="autocomplete-wrap"><input id="start" autocomplete="off" placeholder="Type any part of a place name… e.g. manish"><div id="startSuggestions" class="autocomplete-list"></div></div></div>
+  <div class="actions"><button class="secondary" id="locate">Use current location</button><button class="secondary" id="pickStart">Pick on map</button></div>
+  <div class="field"><label for="dest">Destination</label><div class="autocomplete-wrap"><input id="dest" autocomplete="off" placeholder="Type any part of a place name… e.g. library"><div id="destSuggestions" class="autocomplete-list"></div></div></div>
+  <div class="actions"><button class="secondary" id="pickDest">Pick destination</button><button class="secondary" id="findPlaces">Nearby places</button></div>
+  <div class="actions"><button id="routeBtn">Build route</button><button class="secondary" id="clearRoute">Clear</button></div>
+
+  <div class="section-title" style="margin-top:3px"><h2>Personalized session</h2></div>
+  <div class="field"><label for="userId">Your anonymous user ID</label><input id="userId" readonly></div>
+  <div class="stats">
+    <div class="stat"><small>Personal lead</small><strong id="lead">10</strong><small>seconds</small></div>
+    <div class="stat"><small>Speed</small><strong id="speed">—</strong><small>m/s</small></div>
+    <div class="stat"><small>Stopped</small><strong id="stopped">0</strong><small>seconds</small></div>
+  </div>
+  <div class="next-turn"><div><div class="label">NEXT TURN</div><strong id="nextTurn">Build a route</strong></div><div class="distance" id="nextTurnDistance">—</div></div>
+  <div class="status" id="status">Choose a start and destination, then build the route.</div>
+  <div class="actions"><button id="testVoice" type="button">🔊 Test voice</button>
+    <button id="startSession">Start GPS session</button><button id="stopSession" class="warn" disabled>Stop</button></div>
+
+  <div class="feedback-wrap" id="feedbackWrap">
+    <div class="section-title"><h2>Instruction feedback</h2><span class="hint" id="feedbackTurn"></span></div>
+    <div class="hint" style="margin:4px 0 7px">How did the timing feel? Feedback becomes active after a voice instruction.</div>
+    <div class="feedback"><button class="secondary" data-feedback="early" disabled>Too early</button><button class="secondary" data-feedback="right" disabled>Just right</button><button class="secondary" data-feedback="late" disabled>Too late</button></div>
+        <div class="field" style="margin-top:7px"><textarea id="note" rows="2" placeholder="Add an optional note after the voice instruction" disabled></textarea></div>
+  </div>
+
+  <div class="actions"><button id="saveNote" class="secondary" disabled>Save note</button><button id="download" class="secondary">Export CSV</button></div>
+  <div class="hint" id="leadStatus">Personalized lead time: 10 seconds</div>
+  <div class="log" id="log">Session log will appear here.</div>
+</section>
+
+<section class="panel map-panel">
+  <div class="searchrow"><input id="placeSearch" placeholder="Find VNIT building, gate, landmark or nearby place"><button id="searchBtn">Search</button></div>
+  <div id="map"></div>
+  <div class="hint">Routes use the supplied VNIT KML pedestrian network with an A* custom router. Use the layer control on the map to switch between the present street map and satellite imagery. The teal line is the active route. Routes use only the supplied KML geometry: exact intersections and tiny endpoint gaps are junctions; unrelated nearby lines are never connected automatically.</div>
+</section>
+</main>
+<footer>Prototype: GPS and feedback are used for personalized research data. Get informed consent before collecting participant data. Street map © OpenStreetMap contributors. Satellite imagery © Esri and data providers.</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>window.SMART_NAV_API_BASE=new URLSearchParams(location.search).get("api")||window.location.origin;</script>
+<script src="/frontend/personalization.js"></script>
+<script>
+(() => {
+const $=id=>document.getElementById(id);
+const map=L.map('map').setView([21.1263,79.0511],16);
+const streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'});
+const satelliteLayer=L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community'});
+streetLayer.addTo(map);
+L.control.layers({'Present / Street Map':streetLayer,'Satellite':satelliteLayer},null,{collapsed:false,position:'topright'}).addTo(map);
+let start=null,dest=null,startMarker=null,destMarker=null,arrivalMarker=null,userMarker=null,routeLayer=null,trailLayer=null,watchId=null,session=false,picker=null;
+let samples=[],lastPos=null,stopStart=null,stopDuration=0,lead=10,lastLeadPredictionAt=0,routeSteps=[],nextStepIndex=0,instructionShown=false,lastInstructionStep=-1,lastInstructionAt=0;
+let sessionId=null, currentManeuverId=null, maneuverCounter=0, instructionSnapshot=null, pendingTrajectoryPoints=[];
+let routeCoordinates=[],routeCumDist=[],offRouteCount=0,lastRerouteAt=0,rerouteCooldownMs=12000;
+let trailCoordinates=[];
+let routeSegmentId=0,routeSegmentStartedAt=null,routeBuildInProgress=false,lastDestinationChangeAt=0;
+let routeGeneration=0;
+let activeRouteController=null;
+let activeRouteRequestId=0;
+let manualBuildInProgress=false;
+let locatingCurrentPosition=false,currentLocationWatchId=null;
+
+/* Route requests are cached/in-flight shared so Build route does not make
+   another network request when the same route was already prefetched. */
+const routeCache=new Map();
+const routeInFlight=new Map();
+const MAX_ROUTE_CACHE=8;
+
+function routeCacheKey(from,to){
+  const f=`${from.lat.toFixed(5)},${from.lng.toFixed(5)}`;
+  const t=`${to.lat.toFixed(5)},${to.lng.toFixed(5)}`;
+  return `${f}|${t}`;
+}
+
+function rememberRoute(key,route){
+  routeCache.set(key,route);
+  while(routeCache.size>MAX_ROUTE_CACHE){
+    routeCache.delete(routeCache.keys().next().value);
+  }
+}
+
+function prefetchRoute(from,to){
+  if(!from||!to)return;
+  const key=routeCacheKey(from,to);
+  if(routeCache.has(key)||routeInFlight.has(key))return;
+  const promise=requestWalkingRoute(from,to)
+    .then(route=>{
+      rememberRoute(key,route);
+      return route;
+    })
+    .catch(()=>null)
+    .finally(()=>routeInFlight.delete(key));
+  routeInFlight.set(key,promise);
+}
+const startIcon=color=>L.divIcon({className:'',html:`<div style="background:${color};width:20px;height:20px;border:3px solid white;border-radius:50%;box-shadow:0 1px 6px #333"></div>`,iconSize:[20,20],iconAnchor:[10,10]});
+function setStatus(s){$('status').textContent=s}
+function log(s){const el=$('log');if(el.textContent==='Session log will appear here.')el.textContent='';const d=document.createElement('div');d.textContent=`${new Date().toLocaleTimeString()} — ${s}`;el.prepend(d)}
+function haversine(a,b){const R=6371000,rad=x=>x*Math.PI/180,dLat=rad(b.lat-a.lat),dLon=rad(b.lng-a.lng),x=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+
+async function refreshPredictedLeadTime(speed, distance, turnType, now){
+  if(!session || instructionShown || now-lastLeadPredictionAt<3000 || typeof getPredictedLeadTime!=='function')return;
+  lastLeadPredictionAt=now;
+  const recent=samples.filter(r=>r.event==='gps_sample' && Number.isFinite(Number(r.speed_mps)) && now-Date.parse(r.timestamp)<=10000);
+  const last5=recent.filter(r=>now-Date.parse(r.timestamp)<=5000).map(r=>Number(r.speed_mps));
+  const all10=recent.map(r=>Number(r.speed_mps));
+  const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+  const avg5=mean(last5),avg10=mean(all10);
+  const variance=all10.length?mean(all10.map(v=>(v-avg10)**2)):0;
+  const oldest=all10.length?Number(all10[0]):speed;
+  try{
+    const result=await getPredictedLeadTime({
+      turn_type:turnType||'straight',current_speed_mps:speed,
+      avg_speed_5s_mps:avg5,avg_speed_10s_mps:avg10,
+      speed_std_10s_mps:Math.sqrt(variance),max_speed_10s_mps:all10.length?Math.max(...all10):speed,
+      speed_trend_10s_mps:speed-oldest,speed_samples_5s:last5.length,
+      speed_samples_10s:all10.length,speed_history_coverage_s:all10.length?Math.min(10,(now-Date.parse(recent[0].timestamp))/1000):0,
+      distance_to_turn_m:Math.max(0,distance),stop_duration_s:stopDuration
+    });
+    const next=Number(result.lead_time_seconds);
+    if(Number.isFinite(next)){lead=Math.max(3,Math.min(30,next));$('lead').textContent=lead.toFixed(0);$('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds (${result.source})`;}
+  }catch(e){/* Keep last valid lead time when the prediction endpoint is unavailable. */}
+}
+function updateTrail(pos){
+  if(!session)return;
+  const point={lat:pos.lat,lng:pos.lng};
+  const last=trailCoordinates[trailCoordinates.length-1];
+  if(!last || haversine(last,point)>=3){
+    trailCoordinates.push(point);
+    if(!trailLayer){
+      trailLayer=L.polyline([], {color:'#667085',weight:5,opacity:.9}).addTo(map);
+    }
+    trailLayer.setLatLngs(trailCoordinates.map(p=>[p.lat,p.lng]));
+  }
+}
+function preserveActiveRouteAsHistory(){
+  /* The active route is replaced on reroute/destination change. The actual
+     GPS trail remains visible, so the map still shows Original Start →
+     Current Location → New Active Route. We intentionally do not keep the
+     unused future part of the old route as an active navigation line. */
+}
+
+function resetRouteForNewDestination(reason){
+  routeGeneration++;
+  routeSegmentId++;
+  routeSegmentStartedAt=new Date().toISOString();
+
+  if(routeLayer){
+    map.removeLayer(routeLayer);
+    routeLayer=null;
+  }
+  if(arrivalMarker){
+    map.removeLayer(arrivalMarker);
+    arrivalMarker=null;
+  }
+
+  routeSteps=[];refreshTurnMarkers();
+  routeCoordinates=[];
+  currentManeuverId=null;
+  instructionSnapshot=null;
+  offRouteCount=0;
+  nextStepIndex=0;
+  instructionShown=false;
+  lastInstructionStep=-1;
+  lastInstructionAt=0;
+
+  /* These values describe the CURRENT route segment. They must not carry
+     over from the previous destination. */
+  stopStart=null;
+  stopDuration=0;
+  lastPos=null;
+  $('stopped').textContent='0';
+  $('speed').textContent='—';
+  $('nextTurn').textContent='Build route';
+  $('nextTurnDistance').textContent='—';
+  $('feedbackTurn').textContent='';
+  $('feedbackWrap').style.display='none';
+  document.querySelectorAll('[data-feedback]').forEach(b=>b.disabled=true);
+  $('saveNote').disabled=true;
+  $('note').value='';
+  $('note').disabled=true;
+
+  log(`Route segment ${routeSegmentId} reset: ${reason}.`);
+}
+
+async function handleDestinationChanged(previousDestination,newDestination){
+  const changedWhileNavigating=session;
+
+  /* IMPORTANT: capture the latest GPS position BEFORE resetting route state.
+     Route B must start from the user's current location, not the original
+     starting point of Route A. */
+  const currentPosition=lastPos
+    ? {lat:lastPos.pos.lat,lng:lastPos.pos.lng}
+    : null;
+
+  const previousStopDuration=stopDuration;
+  if(session){
+    if(routeSteps.length && !usableForNavigation){
+    setStatus(`GPS accuracy is about ${Math.round(accuracy)} m. Waiting for a better fix before turn timing.`);
+  }
+
+  samples.push({
+      timestamp:new Date().toISOString(),
+      participant:getOrCreateUserId(),
+      route_segment_id:routeSegmentId,
+      destination:previousDestination?.label||'',
+      lat:lastPos?.pos.lat??'',
+      lon:lastPos?.pos.lng??'',
+      speed_mps:$('speed').textContent,
+      distance_to_turn_m:'',
+      stop_duration_s:previousStopDuration,
+      lead_time_s:lead,
+      turn_type:'unknown',
+      event:'destination_changed',
+      feedback:'',
+      note:`New destination: ${newDestination?.label||''}`
+    });
+  }
+  resetRouteForNewDestination('destination changed');
+
+  if(changedWhileNavigating && currentPosition && newDestination){
+    setStatus('Destination changed. Recalculating from your current location…');
+    try{
+      await buildRouteFromPosition(
+        currentPosition,
+        newDestination,
+        true
+      );
+    }catch(e){
+      setStatus(`Destination changed, but the new route could not be built: ${e.message}`);
+      log(`New-destination route failed: ${e.message}`);
+    }
+  }else if(changedWhileNavigating){
+    setStatus('Destination changed. Waiting for your current GPS position, then build the new route.');
+  }else{
+    setStatus('Destination changed. Build the new route when ready.');
+  }
+}
+
+function setPoint(which,ll,label){
+  const pt={lat:ll.lat,lng:ll.lng,label:label||which};
+
+  if(which==='start'){
+    start=pt;
+    if(startMarker)map.removeLayer(startMarker);
+    startMarker=L.marker(ll,{icon:startIcon('#1674d1')})
+      .addTo(map)
+      .bindPopup('Start: '+pt.label);
+    $('start').value=pt.label;
+  }else{
+    const previous=dest;
+    dest=pt;
+    if(destMarker)map.removeLayer(destMarker);
+    destMarker=L.marker(ll,{icon:startIcon('#dc5a35')})
+      .addTo(map)
+      .bindPopup('Destination: '+pt.label);
+    $('dest').value=pt.label;
+
+    const reallyChanged=!previous ||
+      haversine(previous,pt)>5 ||
+      previous.label!==pt.label;
+
+    if(reallyChanged && previous && !manualBuildInProgress){
+      routeGeneration++;
+      void handleDestinationChanged(previous,pt);
+    }
+  }
+}
+
+map.on('click',e=>{
+  if(picker){
+    setPoint(picker,e.latlng,`${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`);
+    picker=null;
+    setStatus('Map point selected.');
+  }
+});
+
+$('pickStart').onclick=()=>{
+  picker='start';
+  setStatus('Tap the map to choose the starting point.')
+};
+
+$('pickDest').onclick=()=>{
+  picker='dest';
+  setStatus('Tap the map to choose the new destination.')
+};
+
+let mapPointsCache=null;
+
+function normalizePlaceText(value){
+  return String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+
+function editDistance(a,b){
+  const aa=normalizePlaceText(a),bb=normalizePlaceText(b);
+  const dp=Array.from({length:aa.length+1},()=>Array(bb.length+1).fill(0));
+  for(let i=0;i<=aa.length;i++)dp[i][0]=i;
+  for(let j=0;j<=bb.length;j++)dp[0][j]=j;
+  for(let i=1;i<=aa.length;i++){
+    for(let j=1;j<=bb.length;j++){
+      const cost=aa[i-1]===bb[j-1]?0:1;
+      dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+cost);
+    }
+  }
+  return dp[aa.length][bb.length];
+}
+
+const LOCAL_VNIT_POINTS = [{"name":"VNIT Auditorium","lat":21.1245818,"lng":79.0512382},{"name":"VNIT Sports Complex","lat":21.1284346,"lng":79.0551683},{"name":"Tanjore","lat":21.1268527,"lng":79.0580054},{"name":"VNIT Classroom Complex","lat":21.125285,"lng":79.0507484},{"name":"Girls Hostel","lat":21.1280582,"lng":79.0560078},{"name":"Bajaj Nagar Gate No. 2 VNIT","lat":21.1287261,"lng":79.0573972},{"name":"Civil Engineering Department , VNIT","lat":21.1229271,"lng":79.0518973},{"name":"Metallurgical and Material Engineering Department","lat":21.1238883,"lng":79.0508966},{"name":"VNIT Main Road","lat":21.1221481,"lng":79.051497},{"name":"Department of Electrical Engineering , VNIT","lat":21.1225922,"lng":79.052443},{"name":"VNIT Canteen","lat":21.1243139,"lng":79.0494341},{"name":"Computer Science Dept.(VNIT)","lat":21.1250809,"lng":79.0523209},{"name":"Department of Architecture And Planning, VNIT","lat":21.1237958,"lng":79.0523484},{"name":"Food and Multi-Activity Centre, VNIT Nagpur","lat":21.1254788,"lng":79.0481545},{"name":"VNIT Swimming Pool","lat":21.1278857,"lng":79.0520566},{"name":"NIT Skating Rink Road","lat":21.1304617,"lng":79.0539641},{"name":"Electronics and Communication Department Final Year Block","lat":21.1244424,"lng":79.0527312},{"name":"LAD Chowk Metro Station","lat":21.132912,"lng":79.054686},{"name":"VNIT Library","lat":21.125282,"lng":79.0514622},{"name":"VNIT T&P Department","lat":21.1233922,"lng":79.0497476},{"name":"VNIT Main administration Building","lat":21.1232823,"lng":79.0515412},{"name":"Department Of Mechanical Engineering","lat":21.1229889,"lng":79.0513016},{"name":"Department of Chemistry","lat":21.1230698,"lng":79.0511366},{"name":"Applied Mechanics, VNIT","lat":21.1234639,"lng":79.052},{"name":"VNIT Administrative Building","lat":21.1233002,"lng":79.0515376},{"name":"Health Centre, VNIT","lat":21.1263565,"lng":79.0500441},{"name":"Chandaraman Canteen (Chandu)","lat":21.1252227,"lng":79.0471175},{"name":"V.N.I.T. Ground","lat":21.1292537,"lng":79.0562505},{"name":"Manish cycle store","lat":21.1277309,"lng":79.0548595},{"name":"New Academic Block","lat":21.123522,"lng":79.0496598},{"name":"NIT Skating Rink","lat":21.1298719,"lng":79.0535158},{"name":"Anandi Gopal Joshi Hostel","lat":21.1282756,"lng":79.0571598},{"name":"Guest House","lat":21.1262883,"lng":79.0537644},{"name":"Y Point","lat":21.12744,"lng":79.0542701,"stem_bearing":50},{"name":"Department Of Mechanical Engineering","lat":21.1235218,"lng":79.0511058},{"name":"Cycle Stand VNIT Library","lat":21.1255236,"lng":79.0516352},{"name":"Department of Mining Engineering, VNIT","lat":21.1238922,"lng":79.0493492},{"name":"HB2","lat":21.1247185,"lng":79.0481803}];
+const LOCAL_VNIT_PATHS = [{"name":"Line 46","coordinates":[[21.1283912,79.0561777],[21.1283236,79.055897]],"kind":"manual"},{"name":"Line 47","coordinates":[[21.1283236,79.055897],[21.1283422,79.0558075]],"kind":"manual"},{"name":"Line 43","coordinates":[[21.1283912,79.0561777],[21.1281858,79.0562698]],"kind":"manual"},{"name":"Line 44","coordinates":[[21.1282871,79.0571614],[21.1283211,79.0571442],[21.128205,79.0567033],[21.1282821,79.0565788],[21.1281858,79.0562698]],"kind":"manual"},{"name":"Line 42","coordinates":[[21.1281858,79.0562698],[21.1277608,79.0548498]],"kind":"manual"},{"name":"Directions from Department of Architecture And Planning, VNIT to Tanjore","coordinates":[[21.12381,79.05224],[21.12398,79.05227],[21.12407,79.05169],[21.12454,79.05173],[21.12473,79.05175],[21.12482,79.05177],[21.12479,79.05203],[21.12478,79.05206],[21.12479,79.05208],[21.1248,79.0521],[21.12481,79.05212],[21.12488,79.0522],[21.12488,79.05221],[21.12489,79.05222],[21.12489,79.05223],[21.12489,79.05224],[21.12489,79.05223],[21.12489,79.05222],[21.12488,79.05221],[21.12488,79.0522],[21.12481,79.05212],[21.1248,79.0521],[21.12479,79.05208],[21.12478,79.05206],[21.12479,79.05203],[21.12482,79.05177],[21.12489,79.05178],[21.12494,79.0518],[21.12499,79.05182],[21.12502,79.05184],[21.12536,79.05199],[21.1254,79.05201],[21.12543,79.05202],[21.12559,79.05211],[21.12617,79.05248],[21.1265,79.05271],[21.12659,79.05278],[21.12666,79.05284],[21.12671,79.0529],[21.12675,79.05294],[21.12682,79.05303],[21.12719,79.05358],[21.12727,79.05372],[21.12732,79.05385],[21.12737,79.05397],[21.12741,79.05407],[21.12742,79.05411],[21.12743,79.05415],[21.12743,79.0542],[21.12743,79.05427],[21.12759,79.05445],[21.12772,79.05465],[21.12779,79.05474],[21.12783,79.0548],[21.12788,79.05489],[21.12796,79.05502],[21.128,79.05512],[21.12811,79.05538],[21.12825,79.05584],[21.12834,79.05611],[21.12842,79.05641],[21.1285,79.05668],[21.12858,79.05694],[21.12867,79.05718],[21.12871,79.0574],[21.12872,79.05744],[21.12867,79.05746],[21.12831,79.05762],[21.12743,79.05796],[21.12715,79.05809],[21.12691,79.05818]],"kind":"direction_reference"},{"name":"Directions from VNIT Auditorium to Mechanical Workshop, VNIT Main Road, Ambazari, Nagpur, Maharashtra","coordinates":[[21.12442,79.0513],[21.12413,79.05126],[21.12412,79.05132],[21.12407,79.05169],[21.12454,79.05173],[21.12473,79.05175],[21.12482,79.05177],[21.12479,79.05203],[21.12478,79.05206],[21.12479,79.05208],[21.1248,79.0521],[21.12481,79.05212],[21.12488,79.0522],[21.12488,79.05221],[21.12489,79.05222],[21.12489,79.05223],[21.12489,79.05224],[21.12489,79.05223],[21.12489,79.05222],[21.12488,79.05221],[21.12488,79.0522],[21.12481,79.05212],[21.1248,79.0521],[21.12479,79.05208],[21.12478,79.05206],[21.12479,79.05203],[21.12482,79.05177],[21.12489,79.05178],[21.12494,79.0518],[21.12499,79.05182],[21.12502,79.05184],[21.12511,79.05175],[21.12517,79.05169],[21.12519,79.05168],[21.12521,79.05167],[21.12525,79.05167],[21.12528,79.05168],[21.12531,79.05169],[21.12533,79.0517],[21.12537,79.05175],[21.12538,79.05177],[21.12539,79.05179],[21.1254,79.0518],[21.1254,79.05183],[21.1254,79.05201],[21.12543,79.05202],[21.12559,79.05211],[21.12572,79.0512],[21.12582,79.05081],[21.12567,79.05071],[21.12564,79.05076],[21.12562,79.05076],[21.12561,79.05076],[21.12539,79.05059],[21.12516,79.0504],[21.12509,79.05035],[21.12508,79.05032],[21.1251,79.05025],[21.1249,79.0501],[21.12469,79.04993],[21.12445,79.04977],[21.12448,79.04971],[21.12454,79.04952],[21.12448,79.04971],[21.1239,79.04963],[21.12386,79.04963],[21.12353,79.04958],[21.12327,79.04955]],"kind":"direction_reference"},{"name":"Directions from VNIT Canteen to Chandaraman Canteen (Chandu)","coordinates":[[21.12454,79.04952],[21.12468,79.04909],[21.12497,79.04836],[21.12475,79.04823],[21.12469,79.04819],[21.1247,79.04817],[21.12469,79.04819],[21.12475,79.04823],[21.12497,79.04836],[21.12527,79.04855],[21.12535,79.04861],[21.1256,79.0488],[21.12574,79.0489],[21.12582,79.04896],[21.12585,79.04898],[21.12611,79.04925],[21.12635,79.04949],[21.12617,79.04996],[21.12635,79.04949],[21.12611,79.04925],[21.12585,79.04898],[21.12582,79.04896],[21.12574,79.0489],[21.1256,79.0488],[21.12535,79.04861],[21.12527,79.04855],[21.12532,79.0485],[21.1254,79.04843],[21.12546,79.04837],[21.12554,79.04831],[21.12557,79.0483],[21.12561,79.04827],[21.12594,79.04815],[21.12595,79.04814],[21.12596,79.04812],[21.12596,79.04811],[21.12596,79.04809],[21.12593,79.04796],[21.12589,79.04781],[21.12583,79.04766],[21.12576,79.04751],[21.12573,79.04747],[21.12573,79.04746],[21.12572,79.04745],[21.1257,79.04744],[21.12566,79.04743],[21.12562,79.04743],[21.12558,79.04741],[21.12554,79.04739],[21.12552,79.04737],[21.1255,79.04736],[21.12548,79.04733],[21.12545,79.0473],[21.1254,79.04714],[21.12524,79.04719]],"kind":"direction_reference"},{"name":"Directions from Y Point to NIT Skating Rink","coordinates":[[21.12743,79.05427],[21.12726,79.05416],[21.12713,79.05407],[21.12692,79.05391],[21.12681,79.05385],[21.12668,79.05379],[21.12655,79.05373],[21.12634,79.05367],[21.12634,79.05377],[21.12634,79.05367],[21.12625,79.05366],[21.12614,79.05362],[21.12585,79.05359],[21.12558,79.05357],[21.12515,79.0535],[21.12478,79.05348],[21.12438,79.05345],[21.12411,79.05344],[21.12405,79.05336],[21.124,79.05331],[21.12396,79.05325],[21.12393,79.0532],[21.12392,79.05316],[21.12391,79.05307],[21.1239,79.05287],[21.1239,79.05276],[21.12424,79.05279],[21.12425,79.05279],[21.12426,79.05279],[21.12426,79.05278],[21.12427,79.05277],[21.12427,79.05275],[21.12428,79.05273],[21.12428,79.05271],[21.1243,79.05258],[21.1243,79.05252],[21.12431,79.05241],[21.12431,79.05238],[21.12431,79.05236],[21.12431,79.05235],[21.1243,79.05234],[21.1243,79.05233],[21.12428,79.05232],[21.12398,79.05227],[21.12407,79.05169],[21.12454,79.05173],[21.12473,79.05175],[21.12483,79.05177],[21.12489,79.05178],[21.12494,79.0518],[21.12499,79.05182],[21.12502,79.05184],[21.12536,79.05199],[21.1254,79.05201],[21.12543,79.05202],[21.12559,79.05211],[21.12617,79.05248],[21.12622,79.05245],[21.12627,79.05243],[21.12648,79.0524],[21.12729,79.0523],[21.12774,79.05225],[21.12791,79.05223],[21.1279,79.05206],[21.12791,79.05223],[21.12824,79.05219],[21.1283,79.05217],[21.12831,79.05217],[21.12832,79.05217],[21.12833,79.05216],[21.12833,79.05215],[21.12834,79.05213],[21.12833,79.05209],[21.12832,79.05205],[21.12829,79.05195],[21.12826,79.05184],[21.12826,79.0518],[21.12821,79.05161],[21.12816,79.05143],[21.12816,79.05142],[21.12815,79.05132],[21.12813,79.05125],[21.12809,79.05106],[21.12807,79.05093],[21.12808,79.05082],[21.1281,79.0507],[21.12813,79.05061],[21.12833,79.05065],[21.1284,79.05068],[21.12854,79.05072],[21.12869,79.05077],[21.12888,79.05081],[21.12892,79.05082],[21.12897,79.05082],[21.12915,79.05084],[21.12942,79.05087],[21.12954,79.05089],[21.12973,79.05091],[21.1299,79.05092],[21.13039,79.05095],[21.13086,79.05098],[21.13095,79.05098],[21.13105,79.05098],[21.13094,79.05057],[21.1309,79.05043],[21.13066,79.04954],[21.13062,79.04934],[21.13061,79.04925],[21.13067,79.04836],[21.13083,79.04686],[21.1305,79.04679],[21.13041,79.04737],[21.13027,79.04827],[21.13028,79.04832],[21.13067,79.04836],[21.13061,79.04925],[21.13062,79.04934],[21.13066,79.04954],[21.1309,79.05043],[21.13094,79.05057],[21.13105,79.05098],[21.1311,79.05117],[21.13111,79.05121],[21.13098,79.05126],[21.13059,79.05127],[21.13017,79.05128],[21.13014,79.05128],[21.13013,79.05128],[21.13012,79.05129],[21.13011,79.0513],[21.1301,79.05132],[21.13009,79.05137],[21.13003,79.05182],[21.13004,79.05222],[21.13003,79.05261],[21.13,79.0527],[21.12999,79.05273],[21.12998,79.05274],[21.12998,79.05275],[21.12998,79.05276],[21.12998,79.05277],[21.12998,79.05278],[21.12998,79.05279],[21.13046,79.05396],[21.13052,79.05442],[21.13071,79.05476],[21.13115,79.05548],[21.13135,79.05583],[21.13159,79.0563],[21.13145,79.05635],[21.13127,79.05642],[21.13116,79.05648],[21.13013,79.05687],[21.12962,79.05708],[21.12947,79.05714],[21.12929,79.05722],[21.12876,79.05743],[21.12873,79.05743],[21.12876,79.05743],[21.12929,79.05722],[21.12947,79.05714],[21.12962,79.05708],[21.13013,79.05687],[21.13116,79.05648],[21.13127,79.05642],[21.13145,79.05635],[21.13159,79.0563],[21.13135,79.05583],[21.13115,79.05548],[21.13071,79.05476],[21.13052,79.05442],[21.13046,79.05396],[21.13021,79.05336]],"kind":"direction_reference"},{"name":"Directions from Metallurgical and Material Engineering Department to Department of Mining Engineering, VNIT, VNIT Main Road, Ambazari, Nagpur, Maharashtra","coordinates":[[21.12395,79.05096],[21.12397,79.05094],[21.12415,79.05093],[21.12415,79.05083],[21.12416,79.05071],[21.12418,79.05059],[21.12423,79.05045],[21.12445,79.04977],[21.12448,79.04971],[21.1239,79.04963]],"kind":"direction_reference"},{"name":"Directions from Applied Mechanics, VNIT to VNIT Main Road","coordinates":[[21.12357,79.052],[21.12357,79.05196],[21.12359,79.05191],[21.12361,79.05187],[21.12364,79.05163],[21.12356,79.05162],[21.12338,79.05159],[21.12356,79.05162],[21.12364,79.05163],[21.12361,79.05187],[21.12333,79.0519],[21.12329,79.0519],[21.12327,79.0519],[21.12325,79.0519],[21.12322,79.05189],[21.12318,79.05186],[21.12317,79.05182],[21.12316,79.05177],[21.12313,79.05172],[21.12309,79.05164],[21.12311,79.05162],[21.12312,79.0516],[21.12313,79.05159],[21.12313,79.05156],[21.12312,79.05153],[21.1231,79.05149],[21.12317,79.05142],[21.12318,79.05141],[21.12319,79.0514],[21.1232,79.05139],[21.1232,79.05137],[21.12323,79.05124],[21.12324,79.05123],[21.12325,79.05123],[21.12345,79.05126],[21.12347,79.0511],[21.12345,79.05126],[21.12325,79.05123],[21.12324,79.05123],[21.12323,79.05124],[21.1232,79.05137],[21.1232,79.05139],[21.12319,79.0514],[21.12318,79.05141],[21.12317,79.05142],[21.1231,79.05149],[21.12308,79.05147],[21.12306,79.05146],[21.12303,79.05146],[21.12297,79.05123],[21.12297,79.05115],[21.12297,79.05123],[21.12303,79.05146],[21.12306,79.05146],[21.12309,79.05148],[21.12311,79.0515],[21.12312,79.05154],[21.12313,79.05156],[21.12313,79.05159],[21.12312,79.0516],[21.12311,79.05162],[21.12309,79.05165],[21.12306,79.05166],[21.12305,79.05166],[21.12304,79.05166],[21.12302,79.05166],[21.123,79.05166],[21.12297,79.05165],[21.12293,79.0519],[21.12297,79.05165],[21.12294,79.05163],[21.12293,79.05161],[21.12292,79.05161],[21.12289,79.0516],[21.1226,79.05156],[21.12215,79.0515]],"kind":"direction_reference"},{"name":"Directions from Health Centre, VNIT to Computer Science Dept.(VNIT)","coordinates":[[21.12617,79.04996],[21.12613,79.05007],[21.12582,79.05081],[21.12572,79.0512],[21.12559,79.05211],[21.12543,79.05202],[21.1254,79.05201],[21.12536,79.05199],[21.12502,79.05184],[21.12499,79.05182],[21.12494,79.0518],[21.12489,79.05178],[21.12482,79.05177],[21.12479,79.05203],[21.12478,79.05206],[21.12479,79.05208],[21.1248,79.0521],[21.12481,79.05212],[21.12488,79.0522],[21.12488,79.05221],[21.12489,79.05222],[21.12489,79.05223],[21.12489,79.05224]],"kind":"direction_reference"},{"name":"Directions from Anandi Gopal Joshi Hostel to Guest House","coordinates":[[21.12824,79.05705],[21.12846,79.05698],[21.12858,79.05694],[21.1285,79.05668],[21.12842,79.05641],[21.12834,79.05611],[21.12825,79.05584],[21.12811,79.05538],[21.128,79.05512],[21.12796,79.05502],[21.12788,79.05489],[21.12779,79.05474],[21.12772,79.05465],[21.12759,79.05445],[21.12743,79.05427],[21.12726,79.05416],[21.12713,79.05407],[21.12692,79.05391],[21.12681,79.05385],[21.12668,79.05379],[21.12655,79.05373],[21.12634,79.05367],[21.12634,79.05377]],"kind":"direction_reference"},{"name":"Directions from Department Of Mechanical Engineering to Cycle Stand VNIT Library","coordinates":[[21.12347,79.0511],[21.12345,79.05126],[21.12345,79.05132],[21.12345,79.05135],[21.12346,79.05136],[21.12346,79.05138],[21.12347,79.05139],[21.12348,79.05141],[21.12349,79.05142],[21.12351,79.05142],[21.12366,79.05145],[21.12367,79.05131],[21.12388,79.0513],[21.12388,79.05129],[21.12389,79.05129],[21.1239,79.05128],[21.1239,79.05125],[21.12393,79.05104],[21.12395,79.05097],[21.12397,79.05094],[21.12415,79.05093],[21.12415,79.05083],[21.12416,79.05071],[21.12418,79.05059],[21.12423,79.05045],[21.12445,79.04977],[21.12448,79.04971],[21.12454,79.04952],[21.12448,79.04971],[21.12445,79.04977],[21.12469,79.04993],[21.1249,79.0501],[21.1251,79.05025],[21.12567,79.05071],[21.12582,79.05081],[21.12572,79.0512],[21.12566,79.05166]],"kind":"direction_reference"}];
+
+
+async function getMapPoints(){
+  if(mapPointsCache)return mapPointsCache;
+  // Search the supplied VNIT data directly in the browser first. This keeps
+  // Start/Destination search working even when the backend is deployed separately.
+  mapPointsCache = Array.isArray(LOCAL_VNIT_POINTS) ? LOCAL_VNIT_POINTS : [];
+  if(mapPointsCache.length)return mapPointsCache;
+  try{
+    const r=await fetch(`${API_BASE}/api/map-data`);
+    if(r.ok){
+      const d=await r.json();
+      mapPointsCache=Array.isArray(d.points)?d.points:[];
+    }
+  }catch(e){}
+  return mapPointsCache;
+}
+
+function placeSuggestions(points,q,limit=8){
+  const query=normalizePlaceText(q);
+  if(!query)return [];
+  const queryTokens=query.split(/\s+/).filter(Boolean);
+  return points.map(p=>{
+    const name=normalizePlaceText(p.name);
+    const nameTokens=name.split(/\s+/).filter(Boolean);
+    const tokenHits=queryTokens.filter(t=>nameTokens.some(n=>n===t||n.startsWith(t)||t.startsWith(n))).length;
+    const substring=name.includes(query)||query.includes(name)?1:0;
+    const distance=editDistance(query,name);
+    const similarity=1-(distance/Math.max(query.length,name.length,1));
+    const score=tokenHits*6+substring*8+similarity;
+    return {p,score,tokenHits,substring};
+  }).filter(x=>x.tokenHits>0 || x.substring).sort((a,b)=>b.score-a.score).slice(0,limit).map(x=>x.p);
+}
+
+function findLocalPlace(points,q){
+  const suggestions=placeSuggestions(points,q,1);
+  return suggestions[0]||null;
+}
+
+async function geocode(q){
+ const query=q.trim();
+ if(!query)throw Error('Enter a place name first.');
+ try{
+  const points=await getMapPoints();
+  const hit=findLocalPlace(points,query);
+  if(hit)return{lat:+hit.lat,lng:+hit.lng,label:hit.name,source:'kml'};
+ }catch(e){
+  if(e.message==='Could not load the supplied VNIT map data.')throw e;
+ }
+ const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q='+encodeURIComponent(query+' VNIT Nagpur'));
+ if(!r.ok)throw Error('Search service unavailable');
+ const a=await r.json();
+ if(!a.length)throw Error(`Place "${query}" was not found in the supplied VNIT map or OpenStreetMap.`);
+ return{lat:+a[0].lat,lng:+a[0].lon,label:a[0].display_name,source:'osm'};
+}
+
+function closeSuggestions(id){
+  const box=$(id);
+  if(box)box.style.display='none';
+}
+
+function renderSuggestions(inputId,listId,items){
+  const box=$(listId);
+  if(!box)return;
+  box.innerHTML='';
+  if(!items.length){box.style.display='none';return;}
+  items.forEach((p,index)=>{
+    const item=document.createElement('div');
+    item.className='autocomplete-item'+(index===0?' active':'');
+    item.dataset.index=String(index);
+    item.innerHTML=`<div class="autocomplete-name">${escapeHtml(p.name)}</div><div class="autocomplete-meta">VNIT location · ${Number(p.lat).toFixed(6)}, ${Number(p.lng).toFixed(6)}</div>`;
+    item.addEventListener('mousedown',e=>e.preventDefault());
+    item.addEventListener('click',()=>void chooseAutocompletePlace(inputId,listId,p));
+    box.appendChild(item);
+  });
+  box.style.display='block';
+}
+
+async function chooseAutocompletePlace(inputId,listId,p){
+  $(inputId).value=p.name;
+  closeSuggestions(listId);
+  const type=inputId==='start'?'start':'dest';
+  setPoint(type,{lat:+p.lat,lng:+p.lng,label:p.name,source:'kml'},p.name);
+  map.setView([+p.lat,+p.lng],18);
+  setStatus(`${type==='start'?'Start':'Destination'} selected: ${p.name}`);
+}
+
+function invalidateRouteAfterTextEdit(which){
+  routeGeneration++;
+  cancelActiveRouteRequest();
+  if(!session){
+    if(routeLayer){map.removeLayer(routeLayer);routeLayer=null;}
+    if(arrivalMarker){map.removeLayer(arrivalMarker);arrivalMarker=null;}
+    routeSteps=[];refreshTurnMarkers();routeCoordinates=[];nextStepIndex=0;instructionShown=false;lastInstructionStep=-1;
+    $('nextTurn').textContent='Build a route';
+    $('nextTurnDistance').textContent='—';
+  }
+  setStatus(`${which==='start'?'Start':'Destination'} text changed. Build the new route.`);
+}
+
+function setupAutocomplete(inputId,listId){
+  const input=$(inputId);
+  let suggestions=[];
+  let activeIndex=0;
+  input.addEventListener('input',async()=>{
+    const selected=inputId==='start'?start:dest;
+    if(selected && normalizePlaceText(input.value)!==normalizePlaceText(selected.label)){
+      if(inputId==='start')start=null;else dest=null;
+      invalidateRouteAfterTextEdit(inputId==='start'?'start':'destination');
+    }
+    const q=input.value.trim();
+    if(!q){closeSuggestions(listId);return;}
+    try{
+      const points=await getMapPoints();
+      suggestions=placeSuggestions(points,q,8);
+      activeIndex=0;
+      renderSuggestions(inputId,listId,suggestions);
+    }catch(e){closeSuggestions(listId);}
+  });
+  input.addEventListener('keydown',async e=>{
+    if(e.key==='ArrowDown'&&suggestions.length){e.preventDefault();activeIndex=Math.min(activeIndex+1,suggestions.length-1);const els=$(listId).querySelectorAll('.autocomplete-item');els.forEach((el,i)=>el.classList.toggle('active',i===activeIndex));}
+    else if(e.key==='ArrowUp'&&suggestions.length){e.preventDefault();activeIndex=Math.max(activeIndex-1,0);const els=$(listId).querySelectorAll('.autocomplete-item');els.forEach((el,i)=>el.classList.toggle('active',i===activeIndex));}
+    else if(e.key==='Enter'){
+      e.preventDefault();
+      if(suggestions.length)await chooseAutocompletePlace(inputId,listId,suggestions[activeIndex]||suggestions[0]);
+      else if(input.value.trim()){if(inputId==='start')await resolveStartFromText();else await resolveDestinationFromText();}
+    }else if(e.key==='Escape')closeSuggestions(listId);
+  });
+  input.addEventListener('blur',()=>setTimeout(()=>closeSuggestions(listId),150));
+}
+
+async function resolveStartFromText(){
+  const q=$('start').value.trim();
+  if(!q)return;
+  setStatus('Finding starting point…');
+  try{
+    const pt=await geocode(q);
+    setPoint('start',pt,pt.label);
+    map.setView([pt.lat,pt.lng],18);
+    setStatus(`Start found: ${pt.label}`);
+  }catch(e){setStatus(e.message);}
+}
+
+async function resolveDestinationFromText(){
+  const q=$('dest').value.trim();
+  if(!q)return;
+  setStatus('Finding destination…');
+  try{
+    const pt=await geocode(q);
+    setPoint('dest',pt,pt.label);
+    map.setView([pt.lat,pt.lng],18);
+    setStatus(`Destination found: ${pt.label}`);
+  }catch(e){setStatus(e.message);}
+}
+
+async function searchMapPlace(){
+  const q=$('placeSearch').value.trim();
+  if(!q){setStatus('Enter a building, gate, landmark or nearby place to search.');return;}
+  const btn=$('searchBtn');
+  btn.disabled=true;
+  btn.textContent='Searching…';
+  try{
+    const pt=await geocode(q);
+    if(window.searchMarker)map.removeLayer(window.searchMarker);
+    window.searchMarker=L.marker([pt.lat,pt.lng],{icon:startIcon('#0f766e')})
+      .addTo(map).bindPopup(`<b>${escapeHtml(pt.label)}</b>`).openPopup();
+    map.setView([pt.lat,pt.lng],18);
+    setStatus(`Found ${pt.label}${pt.source==='kml'?' in your supplied VNIT data.':' using OpenStreetMap.'}`);
+  }catch(e){setStatus(e.message);}
+  finally{btn.disabled=false;btn.textContent='Search';}
+}
+
+setupAutocomplete('start','startSuggestions');
+setupAutocomplete('dest','destSuggestions');
+$('start').addEventListener('change',()=>void resolveStartFromText());
+$('dest').addEventListener('change',()=>void resolveDestinationFromText());
+$('searchBtn').addEventListener('click',()=>void searchMapPlace());
+$('placeSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();void searchMapPlace();}});
+async function updateDestinationFromText(){
+  const q=$('dest').value.trim();
+  if(!q)return;
+  setStatus('Finding destination…');
+  try{
+    const p=await geocode(q);
+    setPoint('dest',p,p.label);
+    map.setView([p.lat,p.lng],17);
+  }catch(e){
+    setStatus(e.message);
+  }
+}
+
+
+async function locateCurrentPosition(){
+  if(!navigator.geolocation){
+    setStatus('Location is not supported by this browser.');
+    return
+  }
+
+  if(locatingCurrentPosition){
+    setStatus('Already getting your current location…');
+    return
+  }
+
+  locatingCurrentPosition=true;
+  $('locate').disabled=true;
+  $('locate').textContent='Getting location…';
+  setStatus('Getting your current location… Keep location/GPS enabled.');
+
+  let best=null;
+  let settled=false;
+  let timer=null;
+
+  const finish=(message)=>{
+    if(settled)return;
+    settled=true;
+
+    if(currentLocationWatchId!==null){
+      navigator.geolocation.clearWatch(currentLocationWatchId);
+      currentLocationWatchId=null;
+    }
+    if(timer!==null)clearTimeout(timer);
+
+    locatingCurrentPosition=false;
+    $('locate').disabled=false;
+    $('locate').textContent='Use current location';
+
+    if(best){
+      const ll={lat:best.coords.latitude,lng:best.coords.longitude};
+      const accuracy=Math.round(best.coords.accuracy||0);
+
+      setPoint('start',ll,'My current location');
+      if(userMarker)userMarker.setLatLng(ll);
+      else userMarker=L.circleMarker(ll,{
+        radius:8,
+        color:'#fff',
+        weight:3,
+        fillColor:'#1684d6',
+        fillOpacity:1
+      }).addTo(map);
+
+      map.setView(ll,18);
+      setStatus(`${message} Accuracy about ${accuracy} m.`);
+      log(`Current location selected. GPS accuracy about ${accuracy} m.`);
+    }else{
+      setStatus(message);
+    }
+  };
+
+  const handlePosition=(position)=>{
+    const accuracy=Number(position.coords.accuracy)||Infinity;
+
+    /* Keep the best fix instead of blindly accepting the first coarse
+       location returned by the phone/browser. */
+    if(!best || accuracy < (Number(best.coords.accuracy)||Infinity)){
+      best=position;
+
+      const ll={
+        lat:position.coords.latitude,
+        lng:position.coords.longitude
+      };
+
+      if(userMarker)userMarker.setLatLng(ll);
+      else userMarker=L.circleMarker(ll,{
+        radius:8,
+        color:'#fff',
+        weight:3,
+        fillColor:'#1684d6',
+        fillOpacity:1
+      }).addTo(map);
+
+      map.setView(ll,18);
+      setStatus(`Finding your precise location… accuracy about ${Math.round(accuracy)} m.`);
+    }
+
+    /* A fix at <=25 m is normally good enough to select the start point.
+       We still use the best fix received before finishing. */
+    if(accuracy<=25){
+      finish('Current location found.');
+    }
+  };
+
+  const handleError=(error)=>{
+    let message='Could not get your location.';
+    if(error.code===1)message='Location permission was denied. Allow location access for this site.';
+    else if(error.code===2)message='Your location is temporarily unavailable. Check GPS/location settings.';
+    else if(error.code===3)message='Location took too long. Using the best GPS fix received.'; 
+
+    if(best)finish(message);
+    else finish(message);
+  };
+
+  try{
+    currentLocationWatchId=navigator.geolocation.watchPosition(
+      handlePosition,
+      handleError,
+      {
+        enableHighAccuracy:true,
+        maximumAge:0,
+        timeout:12000
+      }
+    );
+
+    /* Do not make the user click 4–5 times. Give the phone up to 20 seconds
+       to produce a good fix, while updating the UI on every new fix. */
+    timer=setTimeout(()=>{
+      if(best)finish('Current location found using the best available GPS fix.');
+      else finish('Could not get a GPS fix. Make sure Location/GPS is enabled and try again.');
+    },20000);
+  }catch(error){
+    finish('Could not start GPS location: '+error.message);
+  }
+}
+
+$('locate').onclick=locateCurrentPosition;
+
+$('findPlaces').onclick=async()=>{
+  setStatus('Loading VNIT mapped places…');
+  try{
+    const r=await fetch(`${API_BASE}/api/map-data`);
+    if(!r.ok)throw Error('Could not load the VNIT map data.');
+    const d=await r.json(); let n=0;
+    d.points.forEach(p=>{L.circleMarker([p.lat,p.lng],{radius:5,color:'#0f766e',fillOpacity:.8}).addTo(map).bindPopup(`<b>${escapeHtml(p.name)}</b>`);n++;});
+    setStatus(`Loaded ${n} landmarks from the supplied VNIT KML.`);
+  }catch(e){setStatus(e.message)}
+};
+function escapeHtml(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));}
+
+function maneuverText(step){const m=step.maneuver||{},type=m.type||'',mod=m.modifier||'';if(type==='arrive')return'Arrive at destination';if(type==='depart')return'Depart';if(type==='roundabout'||type==='rotary')return`Take the roundabout${m.exit?` (exit ${m.exit})`:''}`;if(mod.includes('uturn'))return'Make a U-turn';if(type==='new name'||type==='continue'||type==='notification'){if(mod==='left')return'Continue left';if(mod==='right')return'Continue right';return'Continue straight'}if(type==='fork'){if(mod.includes('left'))return'Keep left at the Y junction';if(mod.includes('right'))return'Keep right at the Y junction'}if(type==='turn'||type==='on ramp'||type==='off ramp'||type==='fork'){if(mod==='left'||mod==='slight left'||mod==='sharp left')return'Turn left';if(mod==='right'||mod==='slight right'||mod==='sharp right')return'Turn right';}return step.name?`Continue on ${step.name}`:'Continue';}
+function cleanManeuverText(step){return maneuverText(step).replace(/^\|+/, '')}
+function normalizeTurnType(step){
+  const m=step?.maneuver||{}, mod=(m.modifier||'').toLowerCase(), type=(m.type||'').toLowerCase();
+  if(mod.includes('uturn'))return 'uturn';
+  if(type==='roundabout'||type==='rotary')return 'roundabout';
+  if(['left','slight left','sharp left'].includes(mod))return 'left';
+  if(['right','slight right','sharp right'].includes(mod))return 'right';
+  return 'straight';
+}
+function newManeuverId(){ maneuverCounter+=1; return `M${String(maneuverCounter).padStart(3,'0')}`; }
+function buildTurnSteps(route){const steps=[];(route.legs||[]).forEach(leg=>(leg.steps||[]).forEach(step=>{const t=step.maneuver?.type;if(['turn','roundabout','rotary','fork','on ramp','off ramp'].includes(t))steps.push(step)}));return steps}
+function stepPoint(step){return{lat:step.maneuver.location[1],lng:step.maneuver.location[0]}}
+
+let turnLayer=null;
+const TURN_ICON={left:'⬅',right:'➡',uturn:'↩',fork_left:'↖',fork_right:'↗',roundabout:'⟳',straight:'⬆'};
+function turnGlyph(step){const m=step.maneuver||{},mod=(m.modifier||'').toLowerCase();if(m.type==='fork')return mod.includes('left')?TURN_ICON.fork_left:TURN_ICON.fork_right;return TURN_ICON[normalizeTurnType(step)]||'⬆'}
+function refreshTurnMarkers(){
+  if(turnLayer){map.removeLayer(turnLayer);turnLayer=null}
+  if(!routeSteps.length)return;
+  turnLayer=L.layerGroup().addTo(map);
+  routeSteps.forEach((step,i)=>{
+    const p=stepPoint(step),state=i<nextStepIndex?'done':(i===nextStepIndex?'next':'later');
+    const icon=L.divIcon({className:'',html:`<div class="turn-pin ${state}">${turnGlyph(step)}</div>`,iconSize:[30,30],iconAnchor:[15,15]});
+    L.marker([p.lat,p.lng],{icon,interactive:true,zIndexOffset:state==='next'?1000:0}).addTo(turnLayer).bindTooltip(`${i+1}. ${cleanManeuverText(step)}`,{direction:'top',permanent:state==='next'});
+  });
+}
+function setNextTurnUI(){
+  refreshTurnMarkers();
+  if(!routeSteps.length){
+    $('nextTurn').textContent='Build a route';
+    $('nextTurnDistance').textContent='—';
+    $('feedbackTurn').textContent='';
+    return;
+  }
+  const step=routeSteps[Math.min(nextStepIndex,routeSteps.length-1)];
+  $('nextTurn').textContent=cleanManeuverText(step);
+  $('feedbackTurn').textContent='';
+}
+function distanceToNextStep(pos){if(!routeSteps.length||nextStepIndex>=routeSteps.length)return NaN;return haversine(pos,stepPoint(routeSteps[nextStepIndex]))}
+function advancePassedSteps(pos){if(nextStepIndex<routeSteps.length){const d=haversine(pos,stepPoint(routeSteps[nextStepIndex]));if(d<10)nextStepIndex++}setNextTurnUI()}
+function projectToSegment(pos,a,b){
+  const lat0=(a.lat+b.lat+pos.lat)/3*Math.PI/180;
+  const kx=111320*Math.cos(lat0),ky=110540;
+  const ax=a.lng*kx,ay=a.lat*ky,bx=b.lng*kx,by=b.lat*ky,px=pos.lng*kx,py=pos.lat*ky;
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  const t=den?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/den)):0;
+  const qx=ax+t*dx,qy=ay+t*dy;
+  const dist=Math.hypot(px-qx,py-qy);
+  return {distance:dist,progress:t};
+}
+function nearestRoutePoint(pos){
+  let best={distance:Infinity,index:0,progress:0};
+  for(let i=0;i<routeCoordinates.length-1;i++){
+    const r=projectToSegment(pos,routeCoordinates[i],routeCoordinates[i+1]);
+    if(r.distance<best.distance)best={distance:r.distance,index:i,progress:r.progress};
+  }
+  return best;
+}
+async function checkOffRoute(pos,accuracy){
+  if(!session||routeCoordinates.length<2||routeBuildInProgress)return;
+  const nearest=nearestRoutePoint(pos);
+  const threshold=Math.min(60,Math.max(20,(Number.isFinite(accuracy)?accuracy:20)*1.25));
+  if(nearest.distance>threshold){
+    offRouteCount++;
+    $('nextTurnDistance').textContent=`Off route · ${Math.round(nearest.distance)} m`;
+    if(offRouteCount>=3 && Date.now()-lastRerouteAt>=rerouteCooldownMs){
+      offRouteCount=0;
+      lastRerouteAt=Date.now();
+      setStatus('Off route detected. Recalculating a walking route from your current location…');
+      log(`Off-route detected (${Math.round(nearest.distance)} m). Rerouting from current GPS position.`);
+      try{await buildRouteFromPosition(pos,dest,true)}
+      catch(e){setStatus(`Could not reroute: ${e.message}`);log(`Reroute failed: ${e.message}`)}
+    }
+  }else{
+    offRouteCount=0;
+  }
+}
+async function recordPosition(position){
+  const c=position.coords;
+  const now=Date.now();
+  const pos={lat:c.latitude,lng:c.longitude};
+  const accuracy=c.accuracy;
+  const usableForNavigation=Number.isFinite(accuracy) ? accuracy<=50 : false;
+
+  let speed=Number.isFinite(c.speed)&&c.speed>=0
+    ? c.speed
+    : (lastPos
+        ? haversine(pos,lastPos.pos)/Math.max((now-lastPos.time)/1000,.1)
+        : 0);
+
+  if(speed>0.25){
+    stopStart=null;
+    stopDuration=0;
+  }else{
+    if(stopStart===null)stopStart=now;
+    stopDuration=(now-stopStart)/1000;
+  }
+
+  $('stopped').textContent=Math.round(stopDuration);
+  $('speed').textContent=speed>0.01?speed.toFixed(1):'0.0';
+
+  if(userMarker)userMarker.setLatLng(pos);
+  else userMarker=L.circleMarker(pos,{radius:8,color:'#fff',weight:3,fillColor:'#1684d6',fillOpacity:1}).addTo(map);
+
+  updateTrail(pos);
+
+  if(!lastPos||haversine(pos,lastPos.pos)>3){
+    map.panTo(pos,{animate:true,duration:.3});
+  }
+
+  if(routeSteps.length && usableForNavigation){
+    await checkOffRoute(pos,accuracy);
+    advancePassedSteps(pos);
+    const step=routeSteps[Math.min(nextStepIndex,routeSteps.length-1)];
+    const dist=haversine(pos,stepPoint(step));
+    const remainingTime=speed>0.25?dist/speed:Infinity;
+    $('nextTurnDistance').textContent=Number.isFinite(dist)?`${Math.round(dist)} m`:'—';
+    void refreshPredictedLeadTime(speed,dist,normalizeTurnType(step),now);
+    const trigger=speed>0.25?speed*lead:0;
+
+    if(!instructionShown&&speed>0.25&&dist<=trigger&&nextStepIndex!==lastInstructionStep){
+      instructionShown=true;
+      lastInstructionStep=nextStepIndex;
+      lastInstructionAt=now;
+      const text=cleanManeuverText(step);
+      const secondsAhead=speed>0.35?dist/speed:lead;
+      currentManeuverId=newManeuverId();
+      instructionSnapshot={
+        maneuverId:currentManeuverId,
+        timestamp:new Date(now).toISOString(),
+        speedMps:speed,
+        distanceToTurnM:dist,
+        stopDurationSeconds:stopDuration,
+        leadTimeSeconds:lead,
+        turnType:normalizeTurnType(step),
+        turnText:text
+      };
+      queueTrajectoryPoint({
+        timestamp:instructionSnapshot.timestamp, participant:getOrCreateUserId(), session_id:sessionId,
+        route_segment_id:routeSegmentId, maneuver_id:currentManeuverId, event:'instruction_fired',
+        lat:pos.lat, lon:pos.lng, accuracy_m:accuracy, speed_mps:speed,
+        distance_to_turn_m:dist, stop_duration_s:stopDuration, lead_time_s:lead,
+        turn_type:instructionSnapshot.turnType, turn_text:text
+      });
+      setStatus(`Voice: In about ${Math.max(1,Math.round(secondsAhead))} seconds, ${text.toLowerCase()}.`);
+      speakTurnInstruction(step,secondsAhead);
+      $('feedbackWrap').style.display='block';
+      document.querySelectorAll('[data-feedback]').forEach(b=>b.disabled=false);
+      $('saveNote').disabled=false;
+      $('note').disabled=false;
+      log(`Instruction: ${text} at ${Math.round(dist)} m (lead ${lead}s).`);
+    }else if(!instructionShown){
+      setStatus(`Next: ${cleanManeuverText(step)} in about ${Math.round(dist)} m.`);
+    }
+  }
+
+  samples.push({
+    timestamp:new Date(now).toISOString(),
+    participant:getOrCreateUserId(),
+    route_segment_id:routeSegmentId,
+    destination:dest?.label||'',
+    lat:pos.lat,
+    lon:pos.lng,
+    accuracy_m:accuracy,
+    speed_mps:speed,
+    distance_to_turn_m:routeSteps.length?distanceToNextStep(pos):'',
+    stop_duration_s:stopDuration,
+    lead_time_s:lead,
+    turn_type:routeSteps.length?normalizeTurnType(routeSteps[Math.min(nextStepIndex,routeSteps.length-1)]):'straight',
+    session_id:sessionId,
+    maneuver_id:currentManeuverId||'',
+    event:'gps_sample',
+    feedback:'',
+    note:''
+  });
+
+  queueTrajectoryPoint({
+    timestamp:new Date(now).toISOString(), participant:getOrCreateUserId(), session_id:sessionId,
+    route_segment_id:routeSegmentId, maneuver_id:currentManeuverId||'', event:'gps_sample',
+    lat:pos.lat, lon:pos.lng, accuracy_m:accuracy, speed_mps:speed,
+    distance_to_turn_m:routeSteps.length?distanceToNextStep(pos):0,
+    stop_duration_s:stopDuration, lead_time_s:lead,
+    turn_type:routeSteps.length?normalizeTurnType(routeSteps[Math.min(nextStepIndex,routeSteps.length-1)]):'straight'
+  });
+
+  lastPos={pos,time:now};
+}
+
+/* ---------- Voice guidance ---------- */
+let availableVoices=[];
+let voiceReady=false;
+
+function loadSpeechVoices(){
+  if(!('speechSynthesis' in window))return;
+  availableVoices=window.speechSynthesis.getVoices()||[];
+  voiceReady=availableVoices.length>0;
+}
+
+if('speechSynthesis' in window){
+  loadSpeechVoices();
+  window.speechSynthesis.onvoiceschanged=loadSpeechVoices;
+}
+
+function getNavigationVoice(){
+  const voices=availableVoices.length
+    ? availableVoices
+    : (window.speechSynthesis?.getVoices?.()||[]);
+
+  const preferred=['en-IN','en-US','en-GB','en-AU'];
+  let voice=voices.find(v=>preferred.includes(v.lang));
+  if(!voice)voice=voices.find(v=>preferred.some(lang=>v.lang?.startsWith(lang.split('-')[0])));
+  if(!voice)voice=voices.find(v=>v.lang?.toLowerCase().startsWith('en'));
+  return voice||null;
+}
+
+function speakNavigation(text){
+  if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window))return false;
+  const message=String(text||'').trim();
+  if(!message)return false;
+
+  try{
+    const synth=window.speechSynthesis;
+    synth.cancel();
+
+    const utterance=new SpeechSynthesisUtterance(message);
+    utterance.lang='en-IN';
+    utterance.rate=0.95;
+    utterance.pitch=1;
+    utterance.volume=1;
+
+    const voice=getNavigationVoice();
+    if(voice){
+      utterance.voice=voice;
+      utterance.lang=voice.lang||'en-IN';
+    }
+
+    synth.speak(utterance);
+    return true;
+  }catch(e){
+    log(`Voice error: ${e.message}`);
+    return false;
+  }
+}
+
+function speakTurnInstruction(step,secondsAhead){
+  const turn=cleanManeuverText(step).toLowerCase();
+  const seconds=Math.max(1,Math.round(Number(secondsAhead)||lead));
+  return speakNavigation(`In about ${seconds} seconds, ${turn}.`);
+}
+
+async function sendTrajectoryBatch(points){
+  if(!sessionId||!points?.length)return;
+  try{
+    const response=await fetch(`${API_BASE}/api/trajectory`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({session_id:sessionId,user_id:getOrCreateUserId(),points})
+    });
+    if(!response.ok)throw new Error(await response.text());
+  }catch(e){ log(`Trajectory upload failed: ${e.message}`); }
+}
+
+function queueTrajectoryPoint(point){
+  if(!sessionId)return;
+  pendingTrajectoryPoints.push(point);
+  if(pendingTrajectoryPoints.length>=5){
+    const batch=pendingTrajectoryPoints.splice(0,pendingTrajectoryPoints.length);
+    void sendTrajectoryBatch(batch);
+  }
+}
+
+async function flushTrajectory(){
+  if(!pendingTrajectoryPoints.length)return;
+  const batch=pendingTrajectoryPoints.splice(0,pendingTrajectoryPoints.length);
+  await sendTrajectoryBatch(batch);
+}
+
+async function startServerSession(){
+  const response=await fetch(`${API_BASE}/api/sessions`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:getOrCreateUserId(),route_segment_id:routeSegmentId,destination:dest?.label||''})
+  });
+  if(!response.ok)throw new Error(await response.text());
+  return response.json();
+}
+
+async function endServerSession(){
+  if(!sessionId)return;
+  const id=sessionId;
+  sessionId=null;
+  try{
+    await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(id)}/end`,{method:'POST'});
+  }catch(e){log(`Session close failed: ${e.message}`)}
+}
+
+
+function localHaversine(a,b){
+  const R=6371000, p1=a.lat*Math.PI/180, p2=b.lat*Math.PI/180;
+  const dlat=(b.lat-a.lat)*Math.PI/180, dlng=(b.lng-a.lng)*Math.PI/180;
+  const q=Math.sin(dlat/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dlng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(Math.max(0,Math.min(1,q))));
+}
+function localProject(pos,a,b){
+  const lat0=((pos.lat+a.lat+b.lat)/3)*Math.PI/180;
+  const kx=111320*Math.cos(lat0), ky=110540;
+  const ax=a.lng*kx, ay=a.lat*ky, bx=b.lng*kx, by=b.lat*ky;
+  const px=pos.lng*kx, py=pos.lat*ky, dx=bx-ax, dy=by-ay;
+  const den=dx*dx+dy*dy;
+  const t=den===0?0:Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/den));
+  const qx=ax+t*dx, qy=ay+t*dy;
+  return {distance:Math.hypot(px-qx,py-qy),point:{lat:qy/ky,lng:qx/kx},t};
+}
+function localRoute(from,to){
+  const NODE_MERGE_M=2, CROSS_CONNECT_M=4, NEAR_CONNECT_MANUAL_M=3, NEAR_CONNECT_MIXED_M=3, REFERENCE_COST=1.15;
+  const localXY=(p,lat0)=>{const kx=111320*Math.cos(lat0*Math.PI/180),ky=110540;return [p.lng*kx,p.lat*ky]};
+  const localLL=(x,y,lat0)=>({lat:y/110540,lng:x/(111320*Math.cos(lat0*Math.PI/180))});
+  const segmentIntersection=(a,b,c,d)=>{
+    const lat0=(a.lat+b.lat+c.lat+d.lat)/4;
+    const A=localXY(a,lat0),B=localXY(b,lat0),C=localXY(c,lat0),D=localXY(d,lat0);
+    const rx=B[0]-A[0],ry=B[1]-A[1],sx=D[0]-C[0],sy=D[1]-C[1],den=rx*sy-ry*sx;
+    if(Math.abs(den)<1e-9)return null;
+    const qx=C[0]-A[0],qy=C[1]-A[1],t=(qx*sy-qy*sx)/den,u=(qx*ry-qy*rx)/den;
+    if(t<-1e-7||t>1.0000001||u<-1e-7||u>1.0000001)return null;
+    return {point:localLL(A[0]+t*rx,A[1]+t*ry,lat0),t,u};
+  };
+  const buildGraph=()=>{
+    const segments=[];
+    LOCAL_VNIT_PATHS.forEach((path,pi)=>{
+      const name=String(path.name||'').trim();
+      const reference=String(path.kind||'').toLowerCase()==='direction_reference'||name.toLowerCase().startsWith('directions from');
+      const c=path.coordinates||[];
+      for(let i=0;i<c.length-1;i++){
+        const a={lat:+c[i][0],lng:+c[i][1]},b={lat:+c[i+1][0],lng:+c[i+1][1]};
+        if(localHaversine(a,b)<0.2)continue;
+        segments.push({a,b,pi,kind:reference?'direction_reference':'manual',name:name||'Mapped VNIT pedestrian path',marks:[[0,a],[1,b]]});
+      }
+    });
+    for(let i=0;i<segments.length;i++)for(let j=i+1;j<segments.length;j++){
+      const a=segments[i],b=segments[j];if(a.pi===b.pi)continue;
+      const hit=segmentIntersection(a.a,a.b,b.a,b.b);
+      if(hit){a.marks.push([hit.t,hit.point]);b.marks.push([hit.u,hit.point]);}
+    }
+    const connectors=[];
+    const addNear=(a,b)=>{
+      let best=null;
+      for(const p of [a.a,a.b]){const q=localProject(p,b.a,b.b);const c={distance:q.distance,p1:p,p2:q.point,t1:null,t2:q.t};if(!best||c.distance<best.distance)best=c;}
+      for(const p of [b.a,b.b]){const q=localProject(p,a.a,a.b);const c={distance:q.distance,p1:q.point,p2:p,t1:q.t,t2:null};if(!best||c.distance<best.distance)best=c;}
+      const mixed=a.kind!==b.kind;
+      const limit=mixed?NEAR_CONNECT_MIXED_M:NEAR_CONNECT_MANUAL_M;
+      if(best.distance>limit)return;
+      if(best.t1===null)best.t1=localProject(best.p1,a.a,a.b).t;
+      if(best.t2===null)best.t2=localProject(best.p2,b.a,b.b).t;
+      a.marks.push([best.t1,best.p1]);b.marks.push([best.t2,best.p2]);connectors.push([best.p1,best.p2,best.distance]);
+    };
+    for(let i=0;i<segments.length;i++)for(let j=i+1;j<segments.length;j++)if(segments[i].pi!==segments[j].pi)addNear(segments[i],segments[j]);
+    const nodes=[],adj=[];
+    const nodeId=p=>{let best=-1,bd=NODE_MERGE_M;for(let i=0;i<nodes.length;i++){const d=localHaversine(p,nodes[i]);if(d<bd){bd=d;best=i;}}if(best>=0)return best;nodes.push({...p});adj.push({});return nodes.length-1;};
+    const addEdge=(u,v,weight=null,kind='manual',name='')=>{if(u===v)return;const d=localHaversine(nodes[u],nodes[v]);if(d<=0.01)return;const w=Number(weight??(d*(kind==='direction_reference'?REFERENCE_COST:1)));if(adj[u][v]===undefined||w<adj[u][v].w){const info={w,d,kind,name};adj[u][v]=info;adj[v][u]=info;}};
+    for(const seg of segments){
+      const marks=[...seg.marks].sort((x,y)=>x[0]-y[0]),uniq=[];
+      for(const m of marks)if(!uniq.length||Math.abs(m[0]-uniq[uniq.length-1][0])>1e-7)uniq.push(m);
+      const ids=uniq.map(m=>nodeId(m[1]));for(let i=0;i<ids.length-1;i++)addEdge(ids[i],ids[i+1],null,seg.kind,seg.name);
+    }
+    connectors.forEach(c=>addEdge(nodeId(c[0]),nodeId(c[1]),c[2],'path_junction','Connected KML pedestrian paths'));
+    return {nodes,adj,segments,nodeId,addEdge};
+  };
+  const graph=buildGraph(),{nodes,adj,segments,nodeId,addEdge}=graph;
+  const nearest=(pos,maxDist)=>{const all=segments.map(seg=>{const q=localProject(pos,seg.a,seg.b);return {...q,seg}}).filter(x=>x.distance<=maxDist).sort((a,b)=>a.distance-b.distance);return all.filter(x=>x.distance<=all[0].distance+6).slice(0,5);};
+  const baseNodes=nodes.length;
+  const splice=(seg,point)=>{const w=nodeId(point),q=localProject(point,seg.a,seg.b).t,marks=[...seg.marks].sort((x,y)=>x[0]-y[0]);for(let i=0;i<marks.length-1;i++){const [t0,p0]=marks[i],[t1,p1]=marks[i+1];if(t1-t0>1e-9&&t0-1e-9<=q&&q<=t1+1e-9){const u=nodeId(p0),v=nodeId(p1);if(w!==u&&w!==v){addEdge(u,w,null,seg.kind,seg.name);addEdge(w,v,null,seg.kind,seg.name)}break}}return w};
+  const attach=(pos,maxDist)=>{const c=nearest(pos,maxDist);if(!c.length)return {id:-1,distance:null};const id=nodeId(pos);c.slice(0,3).forEach(x=>addEdge(id,splice(x.seg,x.point),x.distance,x.seg.kind,x.seg.name));return {id,distance:c[0].distance};};
+  const startNode=attach(from,60);if(startNode.id<0)throw Error('The starting point is not connected to the supplied VNIT pedestrian network. Add or extend a walkway in My Maps.');
+  const destCandidates=nearest(to,60);if(!destCandidates.length)throw Error('The destination is not connected to the supplied VNIT pedestrian network. Add or extend a walkway in My Maps.');
+  let best=null;
+  for(const c of destCandidates){const goal=splice(c.seg,c.point);const g={[startNode.id]:0},prev={},pq=[[localHaversine(nodes[startNode.id],nodes[goal]),0,startNode.id]],seen=new Set();
+    while(pq.length){pq.sort((a,b)=>a[0]-b[0]);const [,cost,u]=pq.shift();if(seen.has(u))continue;seen.add(u);if(u===goal)break;Object.entries(adj[u]).forEach(([vs,info])=>{const v=+vs,nc=cost+info.w;if(nc<(g[v]??Infinity)){g[v]=nc;prev[v]=u;pq.push([nc+localHaversine(nodes[v],nodes[goal]),nc,v]);}});}
+    if(g[goal]===undefined)continue;
+    const ids=[goal];while(ids[0]!==startNode.id){const p=prev[ids[0]];if(p===undefined){ids.length=0;break;}ids.unshift(p);}if(!ids.length)continue;
+    const candidate={ids,total:g[goal]+c.distance,distance:c.distance,point:c.point};if(!best||candidate.total<best.total)best=candidate;
+  }
+  if(!best)throw Error('The supplied KML paths are not connected to each other. Add or extend a walkway until the relevant lines touch or intersect.');
+  if(best.ids.length>2&&best.ids[0]>=baseNodes)best.ids=best.ids.slice(1); // never draw/walk the pin->path hop (pin may be inside a building)
+  const coords=best.ids.map(i=>nodes[i]);
+  const actualDistance=coords.reduce((sum,p,i)=>i?sum+localHaversine(coords[i-1],p):0,0);
+  const straight=localHaversine(from,to);
+  if(straight>1&&actualDistance>Math.max(straight*6,straight+2500))throw Error('The supplied KML produces an excessively indirect route. Add the missing pedestrian connection instead of inventing a path.');
+  const angle=(a,b,c)=>{const lat0=((a.lat+b.lat+c.lat)/3)*Math.PI/180,kx=111320*Math.cos(lat0),ky=110540,v1=[(b.lng-a.lng)*kx,(b.lat-a.lat)*ky],v2=[(c.lng-b.lng)*kx,(c.lat-b.lat)*ky],n1=Math.hypot(...v1),n2=Math.hypot(...v2);if(n1<1e-6||n2<1e-6)return 0;return Math.acos(Math.max(-1,Math.min(1,(v1[0]*v2[0]+v1[1]*v2[1])/(n1*n2))))*180/Math.PI;};
+  const steps=[];
+  for(let i=1;i<coords.length-1;i++){const a=coords[i-1],b=coords[i],c=coords[i+1],ang=angle(a,b,c);if(ang<28)continue;const lat0=b.lat*Math.PI/180,kx=111320*Math.cos(lat0),ky=110540,v1=[(b.lng-a.lng)*kx,(b.lat-a.lat)*ky],v2=[(c.lng-b.lng)*kx,(c.lat-b.lat)*ky],cross=v1[0]*v2[1]-v1[1]*v2[0],modifier=ang>150?'uturn':cross>0?'left':'right';steps.push({maneuver:{type:'turn',modifier,location:[b.lng,b.lat]},name:'Mapped VNIT pedestrian path',distance:0});}
+  const yHints=LOCAL_VNIT_POINTS.filter(p=>/(^|\W)y[\s-]*(point|junction|fork)|\bfork\b/i.test(p.name||'')).map(p=>{let stem=p.stem_bearing;if(stem==null){const m=/stem\s*[:=]?\s*(NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)\b/i.exec(p.name||'');if(m)stem={N:0,NNE:22.5,NE:45,ENE:67.5,E:90,ESE:112.5,SE:135,SSE:157.5,S:180,SSW:202.5,SW:225,WSW:247.5,W:270,WNW:292.5,NW:315,NNW:337.5}[m[1].toUpperCase()]}return {name:p.name,lat:+p.lat,lng:+p.lng,stem:stem==null?null:+stem}});
+  const cum=[0];for(let i=1;i<coords.length;i++)cum.push(cum[i-1]+localHaversine(coords[i-1],coords[i]));
+  const brg=(a,b)=>{const p1=a.lat*Math.PI/180,p2=b.lat*Math.PI/180,dl=(b.lng-a.lng)*Math.PI/180;return (Math.atan2(Math.sin(dl)*Math.cos(p2),Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl))*180/Math.PI+360)%360};
+  const yFound=[],yMerge=[];
+  for(const y of yHints){
+    if(y.stem==null)continue;
+    let by=null;for(let i=1;i<coords.length;i++){const q=localProject(y,coords[i-1],coords[i]);if(!by||q.distance<by.d)by={d:q.distance,i,t:q.t,pt:q.point}}
+    if(!by||by.d>12)continue;
+    const pos=cum[by.i-1]+by.t*(cum[by.i]-cum[by.i-1]);if(pos<8||pos>cum[cum.length-1]-8)continue;
+    const at=s=>{s=Math.max(0,Math.min(cum[cum.length-1],s));let j=1;while(j<cum.length-1&&cum[j]<s)j++;const f=(s-cum[j-1])/((cum[j]-cum[j-1])||1),a=coords[j-1],b=coords[j];return {lat:a.lat+(b.lat-a.lat)*f,lng:a.lng+(b.lng-a.lng)*f}};
+    const before=at(pos-20),after=at(pos+20),pt=by.pt;
+    if(Math.abs((((brg(pt,before)-y.stem+180)%360)+360)%360-180)>40){yMerge.push(pos);continue}
+    if(angle(before,pt,after)<8)continue;
+    const kx=111320*Math.cos(pt.lat*Math.PI/180),ky=110540,v1=[(pt.lng-before.lng)*kx,(pt.lat-before.lat)*ky],v2=[(after.lng-pt.lng)*kx,(after.lat-pt.lat)*ky];
+    yFound.push([pos,{maneuver:{type:'fork',modifier:(v1[0]*v2[1]-v1[1]*v2[0]>0)?'left':'right',location:[pt.lng,pt.lat]},name:y.name,distance:0}]);
+  }
+  if(yFound.length||yMerge.length){
+    const near=yFound.map(x=>x[0]).concat(yMerge),posOf=new Map(coords.map((c,k)=>[c.lng+','+c.lat,cum[k]]));
+    const keyed=steps.map(s=>[posOf.get(s.maneuver.location[0]+','+s.maneuver.location[1])??0,s]).filter(([p])=>near.every(yp=>Math.abs(p-yp)>15)).concat(yFound);
+    keyed.sort((a,b)=>a[0]-b[0]);steps.length=0;keyed.forEach(([,s])=>steps.push(s));
+  }
+  const filtered=[];for(const st of steps){const p={lat:st.maneuver.location[1],lng:st.maneuver.location[0]};if(!filtered.length||localHaversine(p,{lat:filtered[filtered.length-1].maneuver.location[1],lng:filtered[filtered.length-1].maneuver.location[0]})>12)filtered.push(st);}
+  return {geometry:{type:'LineString',coordinates:coords.map(p=>[p.lng,p.lat])},distance:actualDistance,legs:[{steps:filtered}],arrival_point:{lat:best.point.lat,lng:best.point.lng,distance_from_destination_m:best.distance,type:'nearest_mapped_pedestrian_access'},routing_mode:'connected_kml_astar',warning:'',graph_info:{path_count:LOCAL_VNIT_PATHS.length,graph_nodes:nodes.length,graph_edges:Object.values(adj).reduce((s,x)=>s+Object.keys(x).length,0)/2,paths_are_connected_at_intersections:true}};
+}
+function cancelActiveRouteRequest(){
+  if(activeRouteController){
+    try{activeRouteController.abort();}catch(e){}
+    activeRouteController=null;
+  }
+  activeRouteRequestId++;
+}
+
+async function requestWalkingRoute(from,to,{forceRefresh=false}={}){
+  const key=routeCacheKey(from,to);
+  if(!forceRefresh){
+    const cached=routeCache.get(key);
+    if(cached)return cached;
+  }else{
+    routeCache.delete(key);
+  }
+
+  const requestId=++activeRouteRequestId;
+  const controller=new AbortController();
+  activeRouteController=controller;
+  try{
+    try{
+      const r=await fetch(`${API_BASE}/api/route`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({start:from,destination:to}),
+        signal:controller.signal
+      });
+      if(r.ok){
+        const route=await r.json();route.routing_source='server';
+        if(requestId!==activeRouteRequestId)throw new DOMException('Route request superseded','AbortError');
+        rememberRoute(key,route);
+        return route;
+      }
+      let detail='';
+      try{const d=await r.json();detail=d.detail||''}catch(e){}
+      log(`Server route unavailable: ${detail||'HTTP '+r.status}. Trying the local KML router.`);
+    }catch(e){
+      if(e?.name==='AbortError')throw e;
+      log(`Server route unavailable: ${e.message}. Trying the local KML router.`);
+    }
+    if(requestId!==activeRouteRequestId)throw new DOMException('Route request superseded','AbortError');
+    const route=await localRoute(from,to);route.routing_source='browser';
+    if(requestId!==activeRouteRequestId)throw new DOMException('Route request superseded','AbortError');
+    rememberRoute(key,route);
+    return route;
+  }finally{
+    if(activeRouteController===controller)activeRouteController=null;
+  }
+}
+
+function applyWalkingRoute(route){
+  routeCoordinates=(route.geometry?.coordinates||[]).map(c=>({lat:c[1],lng:c[0]}));
+  offRouteCount=0;
+  if(routeLayer)map.removeLayer(routeLayer);
+  if(arrivalMarker)map.removeLayer(arrivalMarker);
+  routeLayer=L.polyline(
+    route.geometry.coordinates.map(c=>[c[1],c[0]]),
+    {color:'#0f766e',weight:5,opacity:.85,dashArray:'8 6'}
+  ).addTo(map);
+
+  if(route.arrival_point){
+    arrivalMarker=L.circleMarker([route.arrival_point.lat,route.arrival_point.lng],{radius:7,weight:3,fillOpacity:.95})
+      .addTo(map)
+      .bindPopup(`Nearest pedestrian access point<br>${Math.round(route.arrival_point.distance_from_destination_m||0)} m from destination marker`);
+  }
+
+  routeSteps=buildTurnSteps(route);
+  nextStepIndex=0;
+  instructionShown=false;
+  lastInstructionStep=-1;
+  lastInstructionAt=0;
+  setNextTurnUI();
+}
+
+async function buildRouteFromPosition(from,to,automaticReroute=false,forceRefresh=false){
+  if(!from||!to)throw Error('Start and destination are required.');
+
+  const buildGeneration=routeGeneration;
+  routeBuildInProgress=true;
+  try{
+    const route=await requestWalkingRoute(from,to,{forceRefresh});
+
+    if(buildGeneration!==routeGeneration){
+      log('Ignored an older route result because the destination/start changed.');
+      return false;
+    }
+
+    applyWalkingRoute(route);
+
+    if(!automaticReroute && routeLayer){
+      map.fitBounds(routeLayer.getBounds(),{padding:[25,25]});
+    }
+
+    const accessText=route.arrival_point && Number(route.arrival_point.distance_from_destination_m)>5
+      ? ` Route ends at the nearest mapped pedestrian access point, ${Math.round(route.arrival_point.distance_from_destination_m)} m from the destination.`
+      : '';
+    const routeWarning=(route.warning?` ${route.warning}`:'')+` [route from: ${route.routing_source==='browser'?'BROWSER FALLBACK (server not reached)':(route.engine_version?'server':'OLD server code - restart it')}]`;
+    setStatus(
+      automaticReroute
+        ? `New VNIT walking route ready. ${routeSteps.length} upcoming turns detected.${accessText}${routeWarning}`
+        : `VNIT custom walking route ready. ${routeSteps.length} upcoming turns detected.${accessText}${routeWarning}`
+    );
+
+    log(`${automaticReroute?'Route updated':'Route built'} for route segment ${routeSegmentId} with ${routeSteps.length} turn steps.`);
+    return true;
+  }finally{
+    routeBuildInProgress=false;
+  }
+}
+
+$('routeBtn').onclick=async()=>{
+  const btn=$('routeBtn');
+  if(routeBuildInProgress){
+    cancelActiveRouteRequest();
+    routeGeneration++;
+    setStatus('Current route request cancelled.');
+    return;
+  }
+
+  manualBuildInProgress=true;
+  routeGeneration++;
+  cancelActiveRouteRequest();
+  const buildToken=routeGeneration;
+  const startText=$('start').value.trim();
+  const destText=$('dest').value.trim();
+  if(!startText||!destText){manualBuildInProgress=false;setStatus('Set both start and destination first.');return;}
+
+  btn.disabled=true;
+  btn.textContent='Building route…';
+  setStatus('Preparing the latest start and destination…');
+
+  try{
+    // Resolve the CURRENT text fields first. Never trust an older selected
+    // object after the user edits a field.
+    if(!start || normalizePlaceText(start.label)!==normalizePlaceText(startText)){
+      await resolveStartFromText();
+    }
+    if(!dest || normalizePlaceText(dest.label)!==normalizePlaceText(destText)){
+      await resolveDestinationFromText();
+    }
+    if(buildToken!==routeGeneration && !start && !dest){
+      throw Error('The route selection changed while it was being prepared. Click Build route again.');
+    }
+    if(!start||!dest){throw Error('Could not resolve the selected start and destination.');}
+
+    // The text fields are authoritative at the moment Build is pressed.
+    const from=session&&lastPos
+      ? {lat:lastPos.pos.lat,lng:lastPos.pos.lng}
+      : {lat:start.lat,lng:start.lng};
+    const to={lat:dest.lat,lng:dest.lng};
+    routeGeneration=buildToken;
+    setStatus('Building pedestrian walking route…');
+    const ok=await buildRouteFromPosition(from,to,false,true);
+    if(!ok && buildToken===routeGeneration){
+      setStatus('Route selection changed before the result arrived.');
+    }
+  }catch(e){
+    if(e?.name==='AbortError'){
+      setStatus('Route request cancelled.');
+    }else{
+      setStatus(e.message||'Could not build the route.');
+      log(`Route build failed: ${e.message||e}`);
+    }
+  }finally{
+    manualBuildInProgress=false;
+    btn.disabled=false;
+    btn.textContent='Build route';
+  }
+};
+
+$('clearRoute').onclick=()=>{
+  if(routeLayer)map.removeLayer(routeLayer);
+  if(arrivalMarker)map.removeLayer(arrivalMarker);
+  routeLayer=null;
+  arrivalMarker=null;
+  routeSteps=[];refreshTurnMarkers();
+  routeCoordinates=[];
+  currentManeuverId=null;
+  instructionSnapshot=null;
+  offRouteCount=0;
+  nextStepIndex=0;
+  instructionShown=false;
+  lastInstructionStep=-1;
+  lastInstructionAt=0;
+  currentManeuverId=null;
+  instructionSnapshot=null;
+  routeSegmentId++;
+  routeSegmentStartedAt=null;
+  stopStart=null;
+  stopDuration=0;
+  lastPos=null;
+  $('stopped').textContent='0';
+  $('speed').textContent='—';
+  $('nextTurn').textContent='Build a route';
+  $('nextTurnDistance').textContent='—';
+  $('feedbackTurn').textContent='';
+  setStatus('Route cleared.');
+  log(`Route segment ${routeSegmentId} cleared.`);
+};
+
+$('testVoice').onclick=()=>{
+  const ok=speakNavigation('Navigation voice is working. You will hear clear turn instructions when it is time to turn.');
+  setStatus(ok?'Voice test played.':'Voice is unavailable in this browser.');
+};
+
+$('startSession').onclick=async()=>{if(session)return;if(!navigator.geolocation){setStatus('Geolocation is not supported by this browser.');return}if(!routeSteps.length){setStatus('Build a route first so the next turn can be detected automatically.');return}try{const profile=await getPersonalizedProfile();lead=Number(profile.preferred_lead_time_seconds)||10}catch(e){lead=10;log('Could not load profile; using 10-second default.')}lead=Math.max(3,Math.min(30,lead));$('lead').textContent=lead.toFixed(0);$('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds`;
+try{const serverSession=await startServerSession();sessionId=serverSession.session_id}catch(e){setStatus(`Could not start data session: ${e.message}`);return}
+samples=[]; pendingTrajectoryPoints=[]; maneuverCounter=0; currentManeuverId=null; instructionSnapshot=null;
+trailCoordinates=[];
+if(trailLayer){map.removeLayer(trailLayer);trailLayer=null;}
+lastPos=null;
+stopStart=null;
+stopDuration=0;
+instructionShown=false;
+lastInstructionStep=-1;
+routeSegmentId++;
+routeSegmentStartedAt=new Date().toISOString();
+session=true;$('startSession').disabled=true;$('stopSession').disabled=false;setStatus('Requesting GPS permission…');watchId=navigator.geolocation.watchPosition(recordPosition,e=>setStatus('GPS error: '+e.message),{enableHighAccuracy:true,maximumAge:0,timeout:15000});log(`Session started for ${getOrCreateUserId()}. Lead time ${lead}s.`)};
+$('stopSession').onclick=()=>{
+  if(watchId!==null)navigator.geolocation.clearWatch(watchId);
+  watchId=null;
+  session=false;
+  stopStart=null;
+  stopDuration=0;
+  lastPos=null;
+  $('stopped').textContent='0';
+  $('startSession').disabled=false;
+  $('stopSession').disabled=true;
+  void flushTrajectory();
+  void endServerSession();
+  setStatus('Session stopped.');
+  log(`Session stopped after route segment ${routeSegmentId}.`);
+};
+document.querySelectorAll('[data-feedback]').forEach(btn=>btn.onclick=async()=>{
+  const kind=btn.dataset.feedback;
+  const previous=lead;
+  const apiMap={early:'too_early',right:'just_right',late:'too_late'};
+  const snap=instructionSnapshot||{
+    maneuverId:currentManeuverId||'',speedMps:Number($('speed').textContent)||0,
+    distanceToTurnM:parseFloat($('nextTurnDistance').textContent)||0,
+    stopDurationSeconds:stopDuration,leadTimeSeconds:previous,turnType:'straight'
+  };
+  const buttons=[...document.querySelectorAll('[data-feedback]')];
+  buttons.forEach(b=>b.disabled=true);
+  setStatus('Saving feedback to your profile…');
+  try{
+    const result=await sendNavigationFeedback({
+      feedback:apiMap[kind],leadTimeSeconds:snap.leadTimeSeconds,
+      walkingSpeedMps:snap.speedMps,distanceToTurnM:snap.distanceToTurnM,
+      stopDurationSeconds:snap.stopDurationSeconds,turnType:snap.turnType,
+      sessionId,maneuverId:snap.maneuverId,note:$('note').value
+    });
+    const savedLead=Number(result.preferred_lead_time_seconds);
+    if(!Number.isFinite(savedLead)) throw new Error('Server did not confirm the saved preference.');
+    lead=Math.max(3,Math.min(30,savedLead));
+    $('lead').textContent=lead.toFixed(0);
+    $('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds`;
+    samples.push({timestamp:new Date().toISOString(),participant:getOrCreateUserId(),session_id:sessionId||'',route_segment_id:routeSegmentId,maneuver_id:snap.maneuverId,destination:dest?.label||'',lat:lastPos?.pos.lat??'',lon:lastPos?.pos.lng??'',speed_mps:snap.speedMps,distance_to_turn_m:snap.distanceToTurnM,stop_duration_s:snap.stopDurationSeconds,lead_time_s:snap.leadTimeSeconds,turn_type:snap.turnType,event:'feedback',feedback:kind,note:$('note').value,save_status:'confirmed'});
+    log(`Feedback saved to server: ${kind}; ${previous}s → ${lead}s; user ${getOrCreateUserId()}; maneuver ${snap.maneuverId||'unknown'}`);
+    setStatus('Feedback saved successfully. Your preference will be available on your next visit in this browser.');
+    $('saveNote').disabled=true;$('note').value='';$('note').disabled=true;instructionShown=false;
+  }catch(e){
+    buttons.forEach(b=>b.disabled=false);
+    const message=String(e?.message||e).slice(0,220);
+    setStatus(`Feedback NOT saved. Check backend/MongoDB and try again. ${message}`);
+    log(`FEEDBACK SAVE FAILED for ${getOrCreateUserId()}: ${message}`);
+  }
+});
+$('saveNote').onclick=()=>{samples.push({timestamp:new Date().toISOString(),participant:getOrCreateUserId(),session_id:sessionId||'',maneuver_id:currentManeuverId||'',route_segment_id:routeSegmentId,destination:dest?.label||'',lat:lastPos?.pos.lat??'',lon:lastPos?.pos.lng??'',speed_mps:$('speed').textContent,distance_to_turn_m:$('nextTurnDistance').textContent,stop_duration_s:stopDuration,lead_time_s:lead,turn_type:routeSteps[nextStepIndex]?.maneuver?.modifier||'unknown',event:'note',feedback:'',note:$('note').value});$('note').value='';$('saveNote').disabled=true;log('Note saved.')};
+$('download').onclick=()=>{if(!samples.length){setStatus('No data yet. Start a session first.');return}const cols=['timestamp','participant','session_id','maneuver_id','lat','lon','accuracy_m','speed_mps','distance_to_turn_m','stop_duration_s','lead_time_s','turn_type','event','feedback','note'];const esc=v=>`"${String(v??'').replaceAll('"','""')}"`;const csv=[cols.join(','),...samples.map(r=>cols.map(c=>esc(r[c])).join(','))].join('\r\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`vnit_navigation_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);setStatus(`Exported ${samples.length} records.`)};
+document.querySelectorAll('[data-feedback]').forEach(b=>b.disabled=true);
+$('saveNote').disabled=true;
+$('note').disabled=true;
+
+(async()=>{$('userId').value=getOrCreateUserId();try{const profile=await getPersonalizedProfile();lead=Number(profile.preferred_lead_time_seconds)||10}catch(e){lead=10}lead=Math.max(3,Math.min(30,lead));$('lead').textContent=lead.toFixed(0);$('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds`;setStatus('Choose a start and destination, then build the route.')})();
+})();
+</script>
+</body>
+</html>

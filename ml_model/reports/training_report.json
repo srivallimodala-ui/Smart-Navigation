@@ -1,0 +1,44 @@
+{
+  "data": "data/simulated_maneuvers.csv",
+  "target": "preferred_lead_time_s",
+  "rows": 2703,
+  "users": 60,
+  "evaluation": "GroupKFold by user_id (unseen users)",
+  "results": {
+    "Baseline (always predict mean)": {
+      "MAE_s": 2.009,
+      "RMSE_s": 2.565,
+      "R2": -0.034,
+      "within_1_5s_pct": 44.8
+    },
+    "Ridge": {
+      "MAE_s": 1.273,
+      "RMSE_s": 1.626,
+      "R2": 0.584,
+      "within_1_5s_pct": 66.3
+    },
+    "Random Forest": {
+      "MAE_s": 1.323,
+      "RMSE_s": 1.699,
+      "R2": 0.546,
+      "within_1_5s_pct": 63.6
+    },
+    "Gradient Boosting": {
+      "MAE_s": 1.31,
+      "RMSE_s": 1.681,
+      "R2": 0.556,
+      "within_1_5s_pct": 64.6
+    }
+  },
+  "shipped_model": "Ridge",
+  "artifact": "artifacts\\lead_time_model.joblib",
+  "top_features": {
+    "user_profile_lead_s": 0.679,
+    "turn_type": 0.283,
+    "speed_std_10s_mps": 0.098,
+    "stop_duration_s": 0.066,
+    "avg_speed_10s_mps": 0.062,
+    "current_speed_mps": 0.008
+  },
+  "warning": "Trained on SIMULATED data: shows the pipeline works, not real-world accuracy."
+}

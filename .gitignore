@@ -1,0 +1,9 @@
+.env
+*.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.vscode/
+ml_model/artifacts/*.joblib
+ml_model/artifacts/*.report.json

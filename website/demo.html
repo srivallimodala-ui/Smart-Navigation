@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Walk – Lead-time demo</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1d2330;--mu:#667085;--ac:#2563eb;--bd:#e3e6ec;--bar:#dbeafe;--warn:#f59e0b}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b1f29;--tx:#e8ebf2;--mu:#98a2b3;--ac:#6ea0ff;--bd:#2c3240;--bar:#22324f}}
+*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--tx)}
+main{max-width:760px;margin:0 auto;padding:20px}
+h1{font-size:1.35rem;margin:0 0 4px}p.sub{color:var(--mu);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:14px}
+.big{font-size:3.2rem;font-weight:700;color:var(--ac);line-height:1}.big small{font-size:1.1rem;color:var(--mu);font-weight:400}
+.row{display:flex;justify-content:space-between;gap:10px;margin:12px 0 2px}.row b{font-variant-numeric:tabular-nums}
+input[type=range]{width:100%}
+.turns{display:flex;flex-wrap:wrap;gap:8px}.turns button{padding:8px 14px;border-radius:999px;border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer;font-size:.95rem}
+.turns button.on{background:var(--ac);border-color:var(--ac);color:#fff}
+.track{height:14px;border-radius:7px;background:var(--bar);position:relative;margin:10px 0 4px}
+.fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--ac);transition:width .25s}
+.mark{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--warn)}
+.note{color:var(--mu);font-size:.88rem}.err{color:#d92d20;font-size:.9rem;min-height:1.2em}
+.presets button{margin:0 6px 6px 0;padding:6px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer}
+</style></head><body><main>
+<h1>Smart Walk – instruction timing demo</h1>
+<p class="sub">Move the sliders: the trained model decides how many seconds before a turn to speak the instruction.</p>
+
+<div class="card">
+  <div class="big"><span id="out">–</span><small> seconds before the turn</small></div>
+  <div class="track"><div class="fill" id="fill"></div><div class="mark" id="mark" title="Fixed 10 s default"></div></div>
+  <div class="note">Orange line = a normal app's fixed 10 s. Blue bar = this model's answer. <span id="src"></span></div>
+  <div class="err" id="err"></div>
+</div>
+
+<div class="card presets"><span class="note">Quick scenarios: </span>
+  <button data-p="cruise">Normal walk, left turn</button>
+  <button data-p="uturn">U-turn</button>
+  <button data-p="restart">Just stopped &amp; restarted</button>
+  <button data-p="erratic">Erratic pace</button>
+</div>
+
+<div class="card">
+  <div class="note">Turn type</div>
+  <div class="turns" id="turns"></div>
+  <div class="row"><span>Walking speed</span><b id="v_sp"></b></div><input id="sp" type="range" min="0.3" max="2.0" step="0.05" value="1.3">
+  <div class="row"><span>Pace variability (movement pattern)</span><b id="v_sd"></b></div><input id="sd" type="range" min="0" max="0.6" step="0.02" value="0.1">
+  <div class="row"><span>Stop duration just before</span><b id="v_st"></b></div><input id="st" type="range" min="0" max="25" step="1" value="0">
+</div>
+
+<div class="card">
+  <div class="row"><span>This user's learned preference <span class="note">(what-if: moves ±2 s per “too early/late” tap in the real app)</span></span><b id="v_pf"></b></div>
+  <input id="pf" type="range" min="3" max="20" step="1" value="10">
+  <div class="note">Left = user kept saying “too early”. Right = user kept saying “too late”.</div>
+</div>
+
+<p class="note">Predictions come from <code>POST /api/predict-lead-time</code>. The model was trained on simulated data, so this shows how the system adapts, not measured real-world accuracy.</p>
+<script>
+const $=id=>document.getElementById(id);
+const TURNS=[["left","Left"],["right","Right"],["straight","Straight"],["uturn","U-turn"],["roundabout","Roundabout"]];
+let turn="left",timer=null,uid="user_demo_"+Math.random().toString(36).slice(2,10);
+TURNS.forEach(([k,l])=>{const b=document.createElement("button");b.textContent=l;b.dataset.k=k;b.onclick=()=>{turn=k;paint();ask()};$("turns").appendChild(b)});
+function paint(){[...$("turns").children].forEach(b=>b.classList.toggle("on",b.dataset.k===turn));
+  $("v_sp").textContent=(+$("sp").value).toFixed(2)+" m/s";$("v_sd").textContent=(+$("sd").value).toFixed(2)+" m/s";
+  $("v_st").textContent=$("st").value+" s";$("v_pf").textContent=$("pf").value+" s";$("mark").style.left=(10/20*100)+"%"}
+async function ask(){
+  const sp=+$("sp").value,sd=+$("sd").value,st=+$("st").value;
+  const body={user_id:uid,turn_type:turn,current_speed_mps:sp,avg_speed_5s_mps:sp,avg_speed_10s_mps:sp,
+    speed_std_10s_mps:sd,max_speed_10s_mps:sp+0.2+sd,speed_trend_10s_mps:0,speed_samples_5s:5,speed_samples_10s:10,
+    speed_history_coverage_s:9.5,distance_to_turn_m:20,stop_duration_s:st,profile_lead_override_s:+$("pf").value};
+  try{const r=await fetch("/api/predict-lead-time",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error("HTTP "+r.status);const j=await r.json();const v=j.lead_time_seconds;
+    $("out").textContent=v.toFixed(1);$("fill").style.width=Math.min(100,v/20*100)+"%";
+    $("src").textContent="Source: "+j.source;$("err").textContent=""}
+  catch(e){$("err").textContent="Could not reach the backend: "+e.message}}
+function later(){paint();clearTimeout(timer);timer=setTimeout(ask,120)}
+["sp","sd","st","pf"].forEach(i=>$(i).addEventListener("input",later));
+const P={cruise:["left",1.3,0.1,0,10],uturn:["uturn",1.3,0.1,0,10],restart:["left",0.8,0.15,12,10],erratic:["left",1.3,0.4,0,10]};
+document.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{const [t,sp,sd,st,pf]=P[b.dataset.p];turn=t;$("sp").value=sp;$("sd").value=sd;$("st").value=st;$("pf").value=pf;later()});
+paint();ask();
+</script></main></body></html>
