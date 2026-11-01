@@ -38,7 +38,7 @@ footer{max-width:1320px;margin:0 auto;padding:0 12px 16px;color:var(--muted);fon
   <div class="section-title" style="margin-top:3px"><h2>Personalized session</h2></div>
   <div class="field"><label for="userId">Your anonymous user ID</label><input id="userId" readonly></div>
   <div class="stats">
-    <div class="stat"><small>Personal lead</small><strong id="lead">10</strong><small>seconds</small></div>
+    <div class="stat"><small>Personal lead</small><strong id="lead">…</strong><small>seconds</small></div>
     <div class="stat"><small>Speed</small><strong id="speed">—</strong><small>m/s</small></div>
     <div class="stat"><small>Stopped</small><strong id="stopped">0</strong><small>seconds</small></div>
   </div>
@@ -50,12 +50,12 @@ footer{max-width:1320px;margin:0 auto;padding:0 12px 16px;color:var(--muted);fon
   <div class="feedback-wrap" id="feedbackWrap">
     <div class="section-title"><h2>Instruction feedback</h2><span class="hint" id="feedbackTurn"></span></div>
     <div class="hint" style="margin:4px 0 7px">How did the timing feel? Feedback becomes active after a voice instruction.</div>
-    <div class="feedback"><button class="secondary" data-feedback="early" disabled>Too early</button><button class="secondary" data-feedback="right" disabled>Just right</button><button class="secondary" data-feedback="late" disabled>Too late</button></div>
+    <div class="feedback"><button class="secondary" data-feedback="early" disabled>Early</button><button class="secondary" data-feedback="right" disabled>Just right</button><button class="secondary" data-feedback="late" disabled>Late</button></div>
         <div class="field" style="margin-top:7px"><textarea id="note" rows="2" placeholder="Add an optional note after the voice instruction" disabled></textarea></div>
   </div>
 
   <div class="actions"><button id="saveNote" class="secondary" disabled>Save note</button><button id="download" class="secondary">Export CSV</button></div>
-  <div class="hint" id="leadStatus">Personalized lead time: 10 seconds</div>
+  <div class="hint" id="leadStatus">Getting predicted lead time…</div>
   <div class="log" id="log">Session log will appear here.</div>
 </section>
 
@@ -127,6 +127,34 @@ function setStatus(s){$('status').textContent=s}
 function log(s){const el=$('log');if(el.textContent==='Session log will appear here.')el.textContent='';const d=document.createElement('div');d.textContent=`${new Date().toLocaleTimeString()} — ${s}`;el.prepend(d)}
 function haversine(a,b){const R=6371000,rad=x=>x*Math.PI/180,dLat=rad(b.lat-a.lat),dLon=rad(b.lng-a.lng),x=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
 
+let lastLeadFeatures=null;
+/* Show the model's lead time, rounded to whole seconds. This whole number is used for
+   BOTH the trigger distance (speed x lead) and the spoken "In about N seconds". */
+function applyLead(result){
+  const next=Number(result&&result.lead_time_seconds);
+  if(!Number.isFinite(next))return false;
+  lead=Math.max(3,Math.min(30,Math.round(next)));
+  $('lead').textContent=String(lead);
+  const adj=Number(result.user_adjustment_seconds)||0;
+  const why=adj===0?'no personal adjustment yet':`your feedback: ${adj>0?'+':''}${Number(adj.toFixed(1))} s`;
+  $('leadStatus').textContent=(result.model_available===false)
+    ?`Model not loaded on the server, so the default ${lead} seconds is being used`
+    :`Predicted lead time: ${lead} seconds (${why})`;
+  return true;
+}
+async function refreshBaselineLead(tries=0){
+  const step=routeSteps.length?routeSteps[Math.min(nextStepIndex,routeSteps.length-1)]:null;
+  const f=lastLeadFeatures||{
+    turn_type:step?normalizeTurnType(step):'left',current_speed_mps:1.3,avg_speed_5s_mps:1.3,
+    avg_speed_10s_mps:1.3,speed_std_10s_mps:0.1,max_speed_10s_mps:1.5,speed_trend_10s_mps:0,
+    speed_samples_5s:5,speed_samples_10s:10,speed_history_coverage_s:9.5,distance_to_turn_m:20,stop_duration_s:0
+  };
+  try{applyLead(await getPredictedLeadTime(f));}
+  catch(e){
+    if(tries<6){$('leadStatus').textContent='Waking up the server… retrying';setTimeout(()=>refreshBaselineLead(tries+1),8000);}
+    else{$('leadStatus').textContent='Could not reach the prediction service';log('Could not get predicted lead time.');}
+  }
+}
 async function refreshPredictedLeadTime(speed, distance, turnType, now){
   if(!session || instructionShown || now-lastLeadPredictionAt<3000 || typeof getPredictedLeadTime!=='function')return;
   lastLeadPredictionAt=now;
@@ -138,16 +166,16 @@ async function refreshPredictedLeadTime(speed, distance, turnType, now){
   const variance=all10.length?mean(all10.map(v=>(v-avg10)**2)):0;
   const oldest=all10.length?Number(all10[0]):speed;
   try{
-    const result=await getPredictedLeadTime({
+    const feats={
       turn_type:turnType||'straight',current_speed_mps:speed,
       avg_speed_5s_mps:avg5,avg_speed_10s_mps:avg10,
       speed_std_10s_mps:Math.sqrt(variance),max_speed_10s_mps:all10.length?Math.max(...all10):speed,
       speed_trend_10s_mps:speed-oldest,speed_samples_5s:last5.length,
       speed_samples_10s:all10.length,speed_history_coverage_s:all10.length?Math.min(10,(now-Date.parse(recent[0].timestamp))/1000):0,
       distance_to_turn_m:Math.max(0,distance),stop_duration_s:stopDuration
-    });
-    const next=Number(result.lead_time_seconds);
-    if(Number.isFinite(next)){lead=Math.max(3,Math.min(30,next));$('lead').textContent=lead.toFixed(0);$('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds (${result.source})`;}
+    };
+    lastLeadFeatures=feats;
+    applyLead(await getPredictedLeadTime(feats));
   }catch(e){/* Keep last valid lead time when the prediction endpoint is unavailable. */}
 }
 function updateTrail(pos){
@@ -789,7 +817,7 @@ async function recordPosition(position){
       lastInstructionStep=nextStepIndex;
       lastInstructionAt=now;
       const text=cleanManeuverText(step);
-      const secondsAhead=speed>0.35?dist/speed:lead;
+      const secondsAhead=lead;
       currentManeuverId=newManeuverId();
       instructionSnapshot={
         maneuverId:currentManeuverId,
@@ -1282,7 +1310,7 @@ $('testVoice').onclick=()=>{
   setStatus(ok?'Voice test played.':'Voice is unavailable in this browser.');
 };
 
-$('startSession').onclick=async()=>{if(session)return;if(!navigator.geolocation){setStatus('Geolocation is not supported by this browser.');return}if(!routeSteps.length){setStatus('Build a route first so the next turn can be detected automatically.');return}try{const profile=await getPersonalizedProfile();lead=Number(profile.preferred_lead_time_seconds)||10}catch(e){lead=10;log('Could not load profile; using 10-second default.')}lead=Math.max(3,Math.min(30,lead));$('lead').textContent=lead.toFixed(0);$('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds`;
+$('startSession').onclick=async()=>{if(session)return;if(!navigator.geolocation){setStatus('Geolocation is not supported by this browser.');return}if(!routeSteps.length){setStatus('Build a route first so the next turn can be detected automatically.');return}await refreshBaselineLead();
 try{const serverSession=await startServerSession();sessionId=serverSession.session_id}catch(e){setStatus(`Could not start data session: ${e.message}`);return}
 samples=[]; pendingTrajectoryPoints=[]; maneuverCounter=0; currentManeuverId=null; instructionSnapshot=null;
 trailCoordinates=[];
@@ -1331,9 +1359,7 @@ document.querySelectorAll('[data-feedback]').forEach(btn=>btn.onclick=async()=>{
     });
     const savedLead=Number(result.preferred_lead_time_seconds);
     if(!Number.isFinite(savedLead)) throw new Error('Server did not confirm the saved preference.');
-    lead=Math.max(3,Math.min(30,savedLead));
-    $('lead').textContent=lead.toFixed(0);
-    $('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds`;
+    await refreshBaselineLead();
     samples.push({timestamp:new Date().toISOString(),participant:getOrCreateUserId(),session_id:sessionId||'',route_segment_id:routeSegmentId,maneuver_id:snap.maneuverId,destination:dest?.label||'',lat:lastPos?.pos.lat??'',lon:lastPos?.pos.lng??'',speed_mps:snap.speedMps,distance_to_turn_m:snap.distanceToTurnM,stop_duration_s:snap.stopDurationSeconds,lead_time_s:snap.leadTimeSeconds,turn_type:snap.turnType,event:'feedback',feedback:kind,note:$('note').value,save_status:'confirmed'});
     log(`Feedback saved to server: ${kind}; ${previous}s → ${lead}s; user ${getOrCreateUserId()}; maneuver ${snap.maneuverId||'unknown'}`);
     setStatus('Feedback saved successfully. Your preference will be available on your next visit in this browser.');
@@ -1351,7 +1377,7 @@ document.querySelectorAll('[data-feedback]').forEach(b=>b.disabled=true);
 $('saveNote').disabled=true;
 $('note').disabled=true;
 
-(async()=>{$('userId').value=getOrCreateUserId();try{const profile=await getPersonalizedProfile();lead=Number(profile.preferred_lead_time_seconds)||10}catch(e){lead=10}lead=Math.max(3,Math.min(30,lead));$('lead').textContent=lead.toFixed(0);$('leadStatus').textContent=`Personalized lead time: ${lead.toFixed(0)} seconds`;setStatus('Choose a start and destination, then build the route.')})();
+(async()=>{$('userId').value=getOrCreateUserId();await refreshBaselineLead();setStatus('Choose a start and destination, then build the route.')})();
 })();
 </script>
 </body>
