@@ -5,5 +5,4 @@ __pycache__/
 .venv/
 venv/
 .vscode/
-ml_model/artifacts/*.joblib
 ml_model/artifacts/*.report.json
